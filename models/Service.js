@@ -12,9 +12,12 @@ const ServiceSchema = new mongoose.Schema({
     imagen: { type: String, required: true },
     imagenes: { type: [String], default: [] },
     oculto: { type: Boolean, default: false },
+    vistas: { type: Number, default: 0 },
     user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     score: { type: Number, default: 0 },
-    deletedAt: { type: Date, default: null }
+    deletedAt: { type: Date, default: null },
+    ruc: { type: String, required: true },
+    times: { type: String, required: true },
 }, { timestamps: true });
 
 export default mongoose.model('Service', ServiceSchema);

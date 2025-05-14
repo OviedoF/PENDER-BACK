@@ -36,23 +36,12 @@ CouponController.getAllByService = async (req, res) => {
 // Obtener cupones activos de un servicio
 CouponController.getActive = async (req, res) => {
     try {
-        const { serviceId } = req.params
-        const now = new Date()
+        const { serviceId } = req.params;
 
         const cupones = await Cupon.find({
             service: serviceId,
             oculto: false,
-            $or: [
-                { activarProgramacion: false }, // Si no está programado, está activo
-                { 
-                    activarProgramacion: true,
-                    fechaPublicacion: { $lte: now }
-                }
-            ],
-            $or: [
-                { fechaExpiracion: null },
-                { fechaExpiracion: { $gte: now } }
-            ]
+            activarProgramacion: false
         }).sort({ createdAt: -1 })
 
         res.json(cupones)
@@ -71,6 +60,7 @@ CouponController.getScheduled = async (req, res) => {
             oculto: false,
             activarProgramacion: true,
         }).sort({ createdAt: -1 })
+        console.log(cupones)
 
         res.json(cupones)
     } catch (error) {

@@ -2,7 +2,8 @@ import User from '../models/User.js';
 import jwt from 'jsonwebtoken';
 import nodemailer from 'nodemailer';
 import fetch from 'node-fetch';
-import {v4 } from 'uuid';
+import { v4 } from 'uuid';
+import welcomeEmail from '../utils/welcomeEmail.js';
 
 async function verifyGoogleToken(token) {
   const response = await fetch('https://www.googleapis.com/oauth2/v1/userinfo?alt=json', {
@@ -48,19 +49,17 @@ const register = async (req, res) => {
       return res.status(400).json({ error: "Nombre de usuario ya en uso" });
     }
 
-    // * Pasar de DD/MM/YYYY a Date
-    console.log(req.body.birthDate);
-
-    if(new Date(req.body.birthDate) == "Invalid Date") {
-        return res.status(400).json({ error: "Fecha de nacimiento inválida" });
+    if (new Date(req.body.birthDate) == "Invalid Date") {
+      return res.status(400).json({ error: "Fecha de nacimiento inválida" });
     }
-    if(req.body.birthDate) req.body.birthdate = new Date(req.body.birthDate);
+    if (req.body.birthDate) req.body.birthdate = new Date(req.body.birthDate);
 
     req.body.image = `${req.file ? `${process.env.APP_URL}/uploads/${req.file.filename}` : `${process.env.API_URL}/images/default_user.png`}`;
 
     const user = new User(req.body);
     await user.save();
-    res.status(201).json({ message: "User registered successfully" });
+    console.log("Correo enviado:", info.response);
+    return res.status(201).json({ message: "User registered successfully" });
   } catch (error) {
     console.log(error);
     res.status(400).json({ error: error.message });
@@ -89,10 +88,10 @@ const registerEnterprise = async (req, res) => {
     req.body.image = `${req.file ? `${process.env.APP_URL}/uploads/${req.file.filename}` : `${process.env.API_URL}/images/default_user.png`}`;
     req.body.role = "enterprise";
 
-    if(req.files.images && req.files.images.length > 0) {
-        req.body.images = req.files.images.map((image) => {
-            return `${process.env.API_URL}/api/uploads/${image.filename}`;
-        });
+    if (req.files.images && req.files.images.length > 0) {
+      req.body.images = req.files.images.map((image) => {
+        return `${process.env.API_URL}/api/uploads/${image.filename}`;
+      });
     }
 
     const user = new User(req.body);
@@ -111,7 +110,8 @@ const login = async (req, res) => {
     if (!user || !(await user.comparePassword(password))) {
       return res.status(401).json({ message: "Credenciales inválidas" });
     }
-    const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: "1d" });
+    const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET);
+
     res.status(200).json({ token, role: user.role });
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -120,7 +120,7 @@ const login = async (req, res) => {
 
 const socialLogin = async (req, res) => {
   try {
-    const {provider, token} = req.body;
+    const { provider, token } = req.body;
     let userData;
 
     if (provider === "google") {
@@ -169,8 +169,8 @@ const whoIam = async (req, res) => {
     const token = req.headers.authorization.split(" ")[1];
     const payload = jwt.verify(token, process.env.JWT_SECRET);
     const user = await User.findById(payload.id);
-    
-    res.status(200).json({ user });	
+
+    res.status(200).json({ user });
   } catch (error) {
     res.status(401).json({ message: "Token inválido" });
   }
@@ -180,7 +180,7 @@ const getUsersByTokens = async (req, res) => {
   try {
     const tokens = req.body.tokens;
     const users = []
-    
+
     tokens.forEach((token) => {
       if (!token) {
         return res.status(400).json({ error: "Token inválido" });
@@ -275,7 +275,7 @@ const editUser = async (req, res) => {
         return res.status(400).json({ error: "Teléfono ya en uso" });
       }
     }
-    
+
     await User.findByIdAndUpdate(payload.id, req.body);
     res.status(201).json({ message: "User registered successfully" });
   }
@@ -317,7 +317,7 @@ const requestPasswordReset = async (req, res) => {
     }
 
     // Generar un código de recuperación con los últimos 6 caracteres del token
-    const token = v4().slice(-5).toUpperCase(); 
+    const token = v4().slice(-5).toUpperCase();
     user.resetPasswordToken = token;
     user.resetPasswordExpires = Date.now() + (5 * 60 * 1000); // 5 minutos
     await user.save();
@@ -326,8 +326,8 @@ const requestPasswordReset = async (req, res) => {
     const transporter = nodemailer.createTransport({
       service: 'gmail',
       auth: {
-          user: process.env.MAIL_USERNAME,
-          pass: process.env.MAIL_PASSWORD,
+        user: process.env.MAIL_USERNAME,
+        pass: process.env.MAIL_PASSWORD,
       }
     });
 
@@ -423,7 +423,7 @@ const verifyPasswordResetCode = async (req, res) => {
 
 const resetPassword = async (req, res) => {
   try {
-    const {password, confirmPassword, email} = req.body;
+    const { password, confirmPassword, email } = req.body;
 
     if (password !== confirmPassword) {
       return res.status(400).json({ error: "Las contraseñas no coinciden" });
@@ -470,14 +470,14 @@ const changeUserSuscription = async (req, res) => {
   }
 }
 
-export { 
+export {
   register,
-  registerEnterprise, 
-  login, 
-  getModerators, 
-  editUser, 
-  deleteUser, 
-  verifyAdmin, 
+  registerEnterprise,
+  login,
+  getModerators,
+  editUser,
+  deleteUser,
+  verifyAdmin,
   requestPasswordReset,
   verifyPasswordResetCode,
   resetPassword,

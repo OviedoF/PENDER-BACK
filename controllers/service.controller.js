@@ -41,17 +41,34 @@ ServiceController.getByUser = async (req, res) => {
 // Obtener todos los servicios
 ServiceController.getAll = async (req, res) => {
     try {
-        const { search } = req.query;
-        const services = await Service.find({ 
-            deletedAt: null,
-            nombre: { $regex: search ? search : '', $options: 'i' }
-         }).sort({ createdAt: -1, score: -1 }).populate('user', 'username firstName lastName image _id');
-         
+        const { search, categoria, distrito, departamento } = req.query; // Recibe los nuevos parámetros
+
+        let queryFilter = { deletedAt: null };
+
+        if (search) {
+            queryFilter.nombre = { $regex: search, $options: 'i' };
+        }
+        if (categoria) {
+            queryFilter.categoria = categoria; // Asegurarse que el campo en el modelo se llame 'categoria'
+        }
+        if (distrito) {
+            queryFilter.distrito = distrito;
+        }
+        if (departamento) {
+            queryFilter.departamento = departamento;
+        }
+        // Añadir más condiciones de filtro según se necesite
+
+        const services = await Service.find(queryFilter) // Aplica el filtro
+            .sort({ createdAt: -1, score: -1 })
+            .populate('user', 'username firstName lastName image _id');
+
         res.json(services);
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 };
+
 
 // Obtener un servicio por ID
 ServiceController.getById = async (req, res) => {

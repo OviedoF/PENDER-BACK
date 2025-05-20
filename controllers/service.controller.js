@@ -4,6 +4,7 @@ import Review from '../models/Review.js';
 import User from '../models/User.js';
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
+import { Types } from 'mongoose';
 dotenv.config();
 
 const ServiceController = {};
@@ -49,11 +50,11 @@ ServiceController.getByUser = async (req, res) => {
 ServiceController.getAll = async (req, res) => {
     try {
         const { search } = req.query;
-        const services = await Service.find({ 
+        const services = await Service.find({
             deletedAt: null,
             nombre: { $regex: search ? search : '', $options: 'i' }
-         }).sort({ createdAt: -1, score: -1 }).populate('user', 'username firstName lastName image _id');
-         
+        }).sort({ createdAt: -1, score: -1 }).populate('user', 'username firstName lastName image _id');
+
         res.json(services);
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -112,7 +113,7 @@ ServiceController.delete = async (req, res) => {
 
         const service = await Service.findOne({ _id: req.params.id, user: user._id });
         if (!service) return res.status(404).json({ error: 'Servicio no encontrado' });
-        
+
         service.deletedAt = new Date();
         await service.save();
         res.json({ message: 'Servicio eliminado correctamente' });
@@ -128,6 +129,8 @@ ServiceController.addView = async (req, res) => {
         if (!service) return res.status(404).json({ error: 'Servicio no encontrado' });
 
         service.vistas += 1;
+        service.views.push({ user: req.user._id, createdAt: new Date() });
+
         await service.save();
         res.json(service);
     } catch (error) {
@@ -184,6 +187,150 @@ ServiceController.getStats = async (req, res) => {
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
+};
+
+// Obtener vistas y reviews de un servicio en los últimos 7 días
+
+ServiceController.getViewsAndReviews = async (req, res, next) => {
+    try {
+        const tz = 'America/Lima';
+        const id = req.params.serviceId;
+        const end = new Date(req.query.end);            // 2025-05-19 00:00:00
+        end.setHours(23, 59, 59, 999);                  // fin del día
+        const start = new Date(end);                    // 7 días atrás
+        start.setDate(end.getDate() - 6);               // 13-05-2025 00:00
+        console.log(end)
+
+        /* etiquetas DD/MM → orden cronológico */
+        const labels = Array.from({ length: 7 }, (_, i) => {
+            const d = new Date(start); d.setDate(start.getDate() + i);
+            return d.toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', timeZone: tz });
+        });
+
+        /* ── VISTAS ───────────────────────────────────────────── */
+        const viewsPipeline = [
+            { $match: { _id: new Types.ObjectId(id) } },       // <─ solo ese servicio
+            { $unwind: '$views' },
+            { $match: { 'views.createdAt': { $gte: start, $lte: end } } },
+            {
+                $group: {
+                    _id: {
+                        y: { $year: { date: '$views.createdAt', timezone: tz } },
+                        m: { $month: { date: '$views.createdAt', timezone: tz } },
+                        d: { $dayOfMonth: { date: '$views.createdAt', timezone: tz } }
+                    },
+                    total: { $sum: 1 }
+                }
+            },
+            {
+                $project: {
+                    _id: 0,
+                    date: {
+                        $dateToString: {
+                            date: {
+                                $dateFromParts: {
+                                    year: '$_id.y', month: '$_id.m', day: '$_id.d', timezone: tz
+                                }
+                            },
+                            format: '%d/%m', timezone: tz
+                        }
+                    },
+                    total: 1
+                }
+            }
+        ];
+
+        /* ── REVIEWS ──────────────────────────────────────────── */
+        const reviewsPipeline = [
+            {
+                $match: {
+                    service: new Types.ObjectId(id),              // <─ reviews de ese servicio
+                    createdAt: { $gte: start, $lte: end }
+                }
+            },
+            {
+                $group: {
+                    _id: {
+                        y: { $year: { date: '$createdAt', timezone: tz } },
+                        m: { $month: { date: '$createdAt', timezone: tz } },
+                        d: { $dayOfMonth: { date: '$createdAt', timezone: tz } }
+                    },
+                    total: { $sum: 1 }
+                }
+            },
+            {
+                $project: {
+                    _id: 0,
+                    date: {
+                        $dateToString: {
+                            date: {
+                                $dateFromParts: {
+                                    year: '$_id.y', month: '$_id.m', day: '$_id.d', timezone: tz
+                                }
+                            },
+                            format: '%d/%m', timezone: tz
+                        }
+                    },
+                    total: 1
+                }
+            }
+        ];
+
+        /* ── ejecutamos en paralelo ──────────────────────────── */
+        const [viewsAgg, reviewsAgg] = await Promise.all([
+            Service.aggregate(viewsPipeline),
+            Review.aggregate(reviewsPipeline)
+        ]);
+
+        const vMap = Object.fromEntries(viewsAgg.map(o => [o.date, o.total]));
+        const rMap = Object.fromEntries(reviewsAgg.map(o => [o.date, o.total]));
+
+        const views = labels.map(d => vMap[d] ?? 0);
+        const reviews = labels.map(d => rMap[d] ?? 0);
+
+        res.json({ labels, views, reviews });
+    } catch (err) { next(err); }
+};
+
+// Obtener estadísticas de un servicio
+ServiceController.getTotals = async (req, res) => {
+  try {
+    /*── 1. Autenticación ───────────────────────────────────────────────*/
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token) return res.status(401).json({ error: 'Token faltante' });
+
+    const { id: userId } = jwt.verify(token, process.env.JWT_SECRET);
+    const user = await User.findById(userId);
+    if (!user) return res.status(401).json({ error: 'Usuario no autorizado' });
+
+    /*── 2. Validar que el servicio pertenezca al usuario ───────────────*/
+    const { serviceId } = req.params;
+    const service = await Service.findOne({ _id: serviceId, user: user._id, deletedAt: null });
+    if (!service) return res.status(404).json({ error: 'Servicio no encontrado' });
+
+    /*── 3. Totales del servicio ────────────────────────────────────────*/
+    // vistas (campo acumulado)
+    const totalViews = service.vistas ?? 0;
+
+    // reviews y cupones (conteo directo)
+    const [totalReviews, totalCoupons] = await Promise.all([
+      Review.countDocuments({ service: serviceId }),
+      Cupon.countDocuments({ service: serviceId })
+    ]);
+
+    const rawStats = { totalViews, totalReviews, totalCoupons };
+
+    /*── 4. Formateo K (función aux) ────────────────────────────────────*/
+    const userStats = {
+      totalViews:    formatNumberK(rawStats.totalViews),
+      totalReviews:  formatNumberK(rawStats.totalReviews),
+      totalCoupons:  formatNumberK(rawStats.totalCoupons)
+    };
+
+    res.json({ ...rawStats, formatted: userStats });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 };
 
 export default ServiceController;

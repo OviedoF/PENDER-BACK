@@ -1,26 +1,32 @@
 
 import express from 'express';
-import { register, registerEnterprise, login, getModerators, editUser, deleteUser, verifyAdmin, requestPasswordReset, resetPassword, whoIam, socialLogin, verifyPasswordResetCode, changeUserSuscription, getUsersByTokens } from '../controllers/authController.js';
+import authController from '../controllers/authController.js';
 import upload from '../config/multer.config.js'; // Configuración de Multer
 
 const router = express.Router();
 
-router.get('/whoIam', whoIam);
-router.post('/social-login', socialLogin);
-router.post("/register", upload.single('image'), register);
+router.get('/whoIam', authController.whoIam);
+router.get('/sessions', authController.getUserLogins);
+router.get('/notifications', authController.getNotifications);
+router.put('/notification/:id', authController.readNotification);
+router.put('/all-notifications', authController.readAllNotifications);
+router.delete('/notification/:id', authController.deleteNotification);
+router.post('/social-login', authController.socialLogin);
+router.post("/register", upload.single('image'), authController.register);
+router.post("/update", upload.single('image'), authController.updateUser);
 router.post("/register-enterprise", upload.fields([
     { name: "image", maxCount: 1 },  // 📌 Campo para una imagen principal
     { name: "images", maxCount: 9 }, // 📌 Campo para imágenes adicionales
-]), registerEnterprise);
-router.post('/getUsersByTokens', getUsersByTokens);
-router.post("/login", login);
-router.put('/edit', editUser);
-router.put('/changeUserSuscription', changeUserSuscription);
-router.delete('/deleteUser/:id', deleteUser);
-router.get('/getModerators', getModerators);
-router.get('/verifyAuth', verifyAdmin);
-router.post("/requestPasswordReset", requestPasswordReset);
-router.post("/verifyPasswordResetCode", verifyPasswordResetCode);
-router.post("/resetPassword", resetPassword);
+]), authController.registerEnterprise);
+router.post('/getUsersByTokens', authController.getUsersByTokens);
+router.post("/login", authController.login);
+router.put('/edit', authController.editUser);
+router.put('/changeUserSuscription', authController.changeUserSuscription);
+router.get('/getModerators', authController.getModerators);
+router.get('/verifyAuth', authController.verifyAdmin);
+router.post("/requestPasswordReset", authController.requestPasswordReset);
+router.post("/verifyPasswordResetCode", authController.verifyPasswordResetCode);
+router.post("/resetPassword", authController.resetPassword);
+router.delete('/deleteUser', authController.deleteAccount);
 
 export default router;

@@ -28,6 +28,11 @@ const userSchema = new mongoose.Schema({
   description: { type: String },
   potentialSegment: { type: String },
   images: { type: Array },
+  preferences: { type: Array },
+  saveHistory: { type: Boolean, default: false },
+
+  // NOTIFICATIONS
+  loginNotifications: { type: Boolean, default: true },
 }, {
   timestamps: true,
 })

@@ -1,9 +1,11 @@
 import User from '../models/User.js';
+import Login from '../models/Login.js';
+import Notification from '../models/Notification.js';
 import jwt from 'jsonwebtoken';
 import nodemailer from 'nodemailer';
 import fetch from 'node-fetch';
 import { v4 } from 'uuid';
-import welcomeEmail from '../utils/welcomeEmail.js';
+import createUserNotification from '../utils/createUserNotification.js';
 
 async function verifyGoogleToken(token) {
   const response = await fetch('https://www.googleapis.com/oauth2/v1/userinfo?alt=json', {
@@ -30,7 +32,9 @@ async function verifyFacebookToken(token) {
   return data; // Contiene datos del usuario (id, nombre, email)
 }
 
-const register = async (req, res) => {
+const authController = {};
+
+authController.register = async (req, res) => {
   try {
     const email = req.body.email;
     const userWithSameEmail = await User.findOne({
@@ -54,7 +58,7 @@ const register = async (req, res) => {
     }
     if (req.body.birthDate) req.body.birthdate = new Date(req.body.birthDate);
 
-    req.body.image = `${req.file ? `${process.env.APP_URL}/uploads/${req.file.filename}` : `${process.env.API_URL}/images/default_user.png`}`;
+    req.body.image = `${req.file ? `${process.env.API_URL}/uploads/${req.file.filename}` : `${process.env.API_URL}/images/default_user.png`}`;
 
     const user = new User(req.body);
     await user.save();
@@ -66,7 +70,36 @@ const register = async (req, res) => {
   }
 };
 
-const registerEnterprise = async (req, res) => {
+authController.updateUser = async (req, res) => {
+  try {
+    const token = req.headers.authorization.split(" ")[1];
+    const payload = jwt.verify(token, process.env.JWT_SECRET);
+    const user = await User.findById(payload.id);
+
+    if (!user) {
+      return res.status(404).json({ error: "Usuario no encontrado" });
+    }
+
+    const emailAlreadyExists = await User.findOne({
+      email: req.body.email,
+      _id: { $ne: user._id },
+    });
+
+    if (emailAlreadyExists) return res.status(400).json({ error: "Email ya en uso" });
+
+    if (req.file) {
+      req.body.image = `${process.env.API_URL}/uploads/${req.file.filename}`;
+    }
+
+    await User.findByIdAndUpdate(payload.id, req.body);
+    res.status(200).json({ message: "User updated successfully" });
+  } catch (error) {
+    console.log(error);
+    res.status(400).json({ error: error.message });
+  }
+};
+
+authController.registerEnterprise = async (req, res) => {
   try {
     const email = req.body.email;
     const userWithSameEmail = await User.findOne({
@@ -103,14 +136,42 @@ const registerEnterprise = async (req, res) => {
   }
 };
 
-const login = async (req, res) => {
+authController.login = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, date, device, deviceOs } = req.body;
     const user = await User.findOne({ email });
+
     if (!user || !(await user.comparePassword(password))) {
+      if (user.saveHistory) {
+        const login = new Login({
+          user: user._id,
+          date: date || new Date(),
+          device: `${deviceOs} | (${device})` || "Desconocido",
+          status: 'failed'
+        });
+
+        await login.save();
+      }
+
+      if(user.loginNotifications) createUserNotification(user._id, "Intento de inicio de sesión fallido", "Se ha detectado un intento de inicio de sesión fallido en tu cuenta.", 'empresa/config/securityHistory');
+
       return res.status(401).json({ message: "Credenciales inválidas" });
     }
+
     const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET);
+
+    if (user.saveHistory) {
+      const login = new Login({
+        user: user._id,
+        date: date || new Date(),
+        device: device || deviceOs || "Desconocido",
+        status: 'connected'
+      });
+
+      await login.save();
+    }
+
+    if (user.loginNotifications) createUserNotification(user._id, "Inicio de sesión exitoso", "Has iniciado sesión correctamente.", 'empresa/config/securityHistory');
 
     res.status(200).json({ token, role: user.role });
   } catch (error) {
@@ -118,7 +179,7 @@ const login = async (req, res) => {
   }
 };
 
-const socialLogin = async (req, res) => {
+authController.socialLogin = async (req, res) => {
   try {
     const { provider, token } = req.body;
     let userData;
@@ -164,7 +225,7 @@ const socialLogin = async (req, res) => {
   }
 };
 
-const whoIam = async (req, res) => {
+authController.whoIam = async (req, res) => {
   try {
     const token = req.headers.authorization.split(" ")[1];
     const payload = jwt.verify(token, process.env.JWT_SECRET);
@@ -176,7 +237,7 @@ const whoIam = async (req, res) => {
   }
 };
 
-const getUsersByTokens = async (req, res) => {
+authController.getUsersByTokens = async (req, res) => {
   try {
     const tokens = req.body.tokens;
     const users = []
@@ -216,7 +277,7 @@ const getUsersByTokens = async (req, res) => {
   }
 }
 
-const getModerators = async (req, res) => {
+authController.getModerators = async (req, res) => {
   try {
     const moderators = await User.find({ role: "moderator" }).populate("club");
     res.status(200).json(moderators);
@@ -225,7 +286,7 @@ const getModerators = async (req, res) => {
   }
 }
 
-const editUser = async (req, res) => {
+authController.editUser = async (req, res) => {
   try {
     const token = req.headers.authorization.split(" ")[1];
     const payload = jwt.verify(token, process.env.JWT_SECRET);
@@ -284,7 +345,7 @@ const editUser = async (req, res) => {
   }
 }
 
-const deleteUser = async (req, res) => {
+authController.deleteUser = async (req, res) => {
   try {
     const { id } = req.params;
     await User.findByIdAndDelete(id);
@@ -295,7 +356,7 @@ const deleteUser = async (req, res) => {
   }
 }
 
-const verifyAdmin = async (req, res, next) => {
+authController.verifyAdmin = async (req, res, next) => {
   try {
     const token = req.headers.authorization.split(" ")[1];
     const payload = jwt.verify(token, process.env.JWT_SECRET);
@@ -308,7 +369,7 @@ const verifyAdmin = async (req, res, next) => {
   }
 }
 
-const requestPasswordReset = async (req, res) => {
+authController.requestPasswordReset = async (req, res) => {
   try {
     const { email } = req.body;
     const user = await User.findOne({ email });
@@ -401,7 +462,7 @@ const requestPasswordReset = async (req, res) => {
   }
 };
 
-const verifyPasswordResetCode = async (req, res) => {
+authController.verifyPasswordResetCode = async (req, res) => {
   try {
     const { email, verificationCode } = req.body;
     const user = await User.findOne({
@@ -421,7 +482,7 @@ const verifyPasswordResetCode = async (req, res) => {
   }
 }
 
-const resetPassword = async (req, res) => {
+authController.resetPassword = async (req, res) => {
   try {
     const { password, confirmPassword, email } = req.body;
 
@@ -448,7 +509,7 @@ const resetPassword = async (req, res) => {
   }
 };
 
-const changeUserSuscription = async (req, res) => {
+authController.changeUserSuscription = async (req, res) => {
   try {
     const token = req.headers.authorization.split(" ")[1];
     const payload = jwt.verify(token, process.env.JWT_SECRET);
@@ -470,19 +531,121 @@ const changeUserSuscription = async (req, res) => {
   }
 }
 
-export {
-  register,
-  registerEnterprise,
-  login,
-  getModerators,
-  editUser,
-  deleteUser,
-  verifyAdmin,
-  requestPasswordReset,
-  verifyPasswordResetCode,
-  resetPassword,
-  socialLogin,
-  whoIam,
-  getUsersByTokens,
-  changeUserSuscription
-};
+authController.getUserLogins = async (req, res) => {
+  try {
+    const token = req.headers.authorization.split(" ")[1];
+    const payload = jwt.verify(token, process.env.JWT_SECRET);
+    const id = payload.id;
+    const logins = await Login.find({ user: id }).populate("user").sort({ date: -1 });
+    res.status(200).json(logins);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+}
+
+authController.deleteAccount = async (req, res) => {
+  try {
+    const {password} = req.body;
+    const token = req.headers.authorization.split(" ")[1];
+    const payload = jwt.verify(token, process.env.JWT_SECRET);
+    const id = payload.id;
+
+    const user = await User.findById(id);
+
+    if (!user) {
+      return res.status(404).json({ error: "Usuario no encontrado" });
+    }
+
+    if (!(await user.comparePassword(password))) {
+      return res.status(401).json({ error: "Contraseña incorrecta" });
+    }
+
+    await User.findByIdAndDelete(id);                         
+    res.status(200).json({ message: "Cuenta eliminada exitosamente" });
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({ error: error.message });
+  }
+}
+
+authController.getNotifications = async (req, res) => {
+  try {
+    const token = req.headers.authorization.split(" ")[1];
+    const payload = jwt.verify(token, process.env.JWT_SECRET);
+    const id = payload.id;
+    const notifications = await Notification.find({ user: id }).populate("user").sort({ date: -1 }).limit(50);
+
+    res.status(200).json(notifications);
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({ error: error.message });
+  }
+}
+
+authController.readNotification = async (req, res) => {
+  try {
+    const token = req.headers.authorization.split(" ")[1];
+    const payload = jwt.verify(token, process.env.JWT_SECRET);
+    const id = payload.id;
+    const notificationId = req.params.id;
+
+    const notification = await Notification.findById(notificationId);
+
+    if (!notification) {
+      return res.status(404).json({ error: "Notificación no encontrada" });
+    }
+
+    if (notification.user.toString() !== id) {
+      return res.status(403).json({ error: "No tienes permiso para marcar esta notificación como leída" });
+    }
+
+    notification.readed = true;
+    await notification.save();
+
+    res.status(200).json({ message: "Notificación marcada como leída" });
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({ error: error.message });
+  }
+}
+
+authController.readAllNotifications = async (req, res) => {
+  try {
+    const token = req.headers.authorization.split(" ")[1];
+    const payload = jwt.verify(token, process.env.JWT_SECRET);
+    const id = payload.id;
+    await Notification.updateMany({ user: id }, { readed: true });
+    res.status(200).json({ message: "Todas las notificaciones marcadas como leídas" });
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({ error: error.message });
+  }
+}
+
+authController.deleteNotification = async (req, res) => {
+  try {
+    const token = req.headers.authorization.split(" ")[1];
+    const payload = jwt.verify(token, process.env.JWT_SECRET);
+    const id = payload.id;
+    const notificationId = req.params.id;
+
+    const notification = await Notification.findById(notificationId);
+
+    if (!notification) {
+      return res.status(404).json({ error: "Notificación no encontrada" });
+    }
+
+    if (notification.user.toString() !== id) {
+      return res.status(403).json({ error: "No tienes permiso para eliminar esta notificación" });
+    }
+
+    await Notification.findByIdAndDelete(notificationId);
+
+    res.status(200).json({ message: "Notificación eliminada" });
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({ error: error.message });
+  }
+}
+
+export default authController;

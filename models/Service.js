@@ -13,6 +13,10 @@ const ServiceSchema = new mongoose.Schema({
     imagenes: { type: [String], default: [] },
     oculto: { type: Boolean, default: false },
     vistas: { type: Number, default: 0 },
+    views: [{
+        user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+        createdAt: { type: Date, default: Date.now }
+    }],
     user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     score: { type: Number, default: 0 },
     deletedAt: { type: Date, default: null },

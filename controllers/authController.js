@@ -62,7 +62,6 @@ authController.register = async (req, res) => {
 
     const user = new User(req.body);
     await user.save();
-    console.log("Correo enviado:", info.response);
     return res.status(201).json({ message: "User registered successfully" });
   } catch (error) {
     console.log(error);
@@ -142,7 +141,7 @@ authController.login = async (req, res) => {
     const user = await User.findOne({ email });
 
     if (!user || !(await user.comparePassword(password))) {
-      if (user.saveHistory) {
+      if (user && user.saveHistory) {
         const login = new Login({
           user: user._id,
           date: date || new Date(),
@@ -153,7 +152,7 @@ authController.login = async (req, res) => {
         await login.save();
       }
 
-      if(user.loginNotifications) createUserNotification(user._id, "Intento de inicio de sesión fallido", "Se ha detectado un intento de inicio de sesión fallido en tu cuenta.", 'empresa/config/securityHistory');
+      if(user && user.loginNotifications) createUserNotification(user._id, "Intento de inicio de sesión fallido", "Se ha detectado un intento de inicio de sesión fallido en tu cuenta.", 'empresa/config/security');
 
       return res.status(401).json({ message: "Credenciales inválidas" });
     }
@@ -171,7 +170,7 @@ authController.login = async (req, res) => {
       await login.save();
     }
 
-    if (user.loginNotifications) createUserNotification(user._id, "Inicio de sesión exitoso", "Has iniciado sesión correctamente.", 'empresa/config/securityHistory');
+    if (user.loginNotifications) createUserNotification(user._id, "Inicio de sesión exitoso", "Has iniciado sesión correctamente.", 'empresa/config/security');
 
     res.status(200).json({ token, role: user.role });
   } catch (error) {

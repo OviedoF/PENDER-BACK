@@ -32,7 +32,7 @@ const userSchema = new mongoose.Schema({
   saveHistory: { type: Boolean, default: false },
 
   // NOTIFICATIONS
-  loginNotifications: { type: Boolean, default: true },
+  loginNotifications: { type: Boolean, default: false },
 }, {
   timestamps: true,
 })

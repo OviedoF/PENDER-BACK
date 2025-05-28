@@ -57,7 +57,19 @@ AdoptionController.getByUser = async (req, res) => {
 
 AdoptionController.getAll = async (req, res) => {
     try {
-        const adoptions = await Adoption.find({ deletedAt: null });
+        const {search} = req.query;
+        console.log(search);
+
+        const query = search ? {
+            deletedAt: null,
+            $or: [
+                { nombre: { $regex: search, $options: 'i' } },
+                { raza: { $regex: search, $options: 'i' } }
+            ]
+        } : { deletedAt: null };
+
+        const adoptions = await Adoption.find(query).sort({ createdAt: -1 });
+
         res.status(200).json(adoptions);
     } catch (error) {
         res.status(500).json({ error: error.message });

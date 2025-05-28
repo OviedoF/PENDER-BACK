@@ -7,7 +7,7 @@ const router = Router();
 router.post('/', upload.single('imagen'), ForumController.create);
 router.get('/', ForumController.getAll);
 router.get('/:id', ForumController.getById);
-router.put('/like/:id', ForumController.likeCommunity);
-router.put('/dislike/:id', ForumController.dislikeCommunity);
+router.put('/like/:id', ForumController.likeForum);
+router.put('/dislike/:id', ForumController.dislikeForum);
 
 export default router;

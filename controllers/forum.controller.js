@@ -61,7 +61,7 @@ ForumController.getAll = async (req, res) => {
     }
 };
 
-ForumController.likeCommunity = async (req, res) => {
+ForumController.likeForum = async (req, res) => {
     try {
         const token = req.headers.authorization.split(' ')[1];
         const payload = jwt.verify(token, process.env.JWT_SECRET);
@@ -85,7 +85,7 @@ ForumController.likeCommunity = async (req, res) => {
     }
 };
 
-ForumController.dislikeCommunity = async (req, res) => {
+ForumController.dislikeForum = async (req, res) => {
     try {
         const token = req.headers.authorization.split(' ')[1];
         const payload = jwt.verify(token, process.env.JWT_SECRET);

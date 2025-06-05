@@ -14,13 +14,10 @@ ForumController.create = async (req, res) => {
         const user = await User.findOne({ _id: payload.id });
         if (!user) return res.status(404).json({ message: 'User not found' });
 
-        req.body.categoria = req.body.categoria?.value || 'General';
-        req.body.etiquetas = req.body.etiquetas?.value || 'General';
-
         if (req.file) {
             req.body.imagen = `${process.env.API_URL}/api/uploads/${req.file.filename}`;
         }
-        req.body.user = user._id;
+        req.body.user = user._id; 
 
         const forum = new Forum(req.body);
         await forum.save();

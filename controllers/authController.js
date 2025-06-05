@@ -1,6 +1,7 @@
 import User from '../models/User.js';
 import Login from '../models/Login.js';
 import Notification from '../models/Notification.js';
+import Message from "../models/Message.js";
 import jwt from 'jsonwebtoken';
 import nodemailer from 'nodemailer';
 import fetch from 'node-fetch';
@@ -79,12 +80,14 @@ authController.updateUser = async (req, res) => {
       return res.status(404).json({ error: "Usuario no encontrado" });
     }
 
-    const emailAlreadyExists = await User.findOne({
-      email: req.body.email,
-      _id: { $ne: user._id },
-    });
+    if (req.body.email) {
+      const emailAlreadyExists = await User.findOne({
+        email: req.body.email,
+        _id: { $ne: user._id },
+      });
 
-    if (emailAlreadyExists) return res.status(400).json({ error: "Email ya en uso" });
+      if (emailAlreadyExists) return res.status(400).json({ error: "Email ya en uso" });
+    }
 
     if (req.file) {
       req.body.image = `${process.env.API_URL}/uploads/${req.file.filename}`;
@@ -152,7 +155,7 @@ authController.login = async (req, res) => {
         await login.save();
       }
 
-      if(user && user.loginNotifications) createUserNotification(user._id, "Intento de inicio de sesión fallido", "Se ha detectado un intento de inicio de sesión fallido en tu cuenta.", 'empresa/config/security');
+      if (user && user.loginNotifications) createUserNotification(user._id, "Intento de inicio de sesión fallido", "Se ha detectado un intento de inicio de sesión fallido en tu cuenta.", 'empresa/config/security');
 
       return res.status(401).json({ message: "Credenciales inválidas" });
     }
@@ -229,8 +232,14 @@ authController.whoIam = async (req, res) => {
     const token = req.headers.authorization.split(" ")[1];
     const payload = jwt.verify(token, process.env.JWT_SECRET);
     const user = await User.findById(payload.id);
+    const unreadNotifications = await Notification.countDocuments({ user: user._id, readed: false });
+    const unreadMessages = await Message.countDocuments({
+      participants: { $in: [user._id] },
+      readed: false
+    });
+    const isEnterpriseAlso = user.ruc ? true : false;
 
-    res.status(200).json({ user });
+    res.status(200).json({ user, unreadNotifications, unreadMessages, isEnterpriseAlso });
   } catch (error) {
     res.status(401).json({ message: "Token inválido" });
   }
@@ -544,7 +553,7 @@ authController.getUserLogins = async (req, res) => {
 
 authController.deleteAccount = async (req, res) => {
   try {
-    const {password} = req.body;
+    const { password } = req.body;
     const token = req.headers.authorization.split(" ")[1];
     const payload = jwt.verify(token, process.env.JWT_SECRET);
     const id = payload.id;
@@ -559,7 +568,7 @@ authController.deleteAccount = async (req, res) => {
       return res.status(401).json({ error: "Contraseña incorrecta" });
     }
 
-    await User.findByIdAndDelete(id);                         
+    await User.findByIdAndDelete(id);
     res.status(200).json({ message: "Cuenta eliminada exitosamente" });
   } catch (error) {
     console.log(error);

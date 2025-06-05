@@ -49,10 +49,11 @@ ServiceController.getByUser = async (req, res) => {
 // Obtener todos los servicios
 ServiceController.getAll = async (req, res) => {
     try {
-        const { search } = req.query;
+        const { search, category } = req.query;
+        console.log('Search:', search, 'Category:', category);
         const services = await Service.find({
             deletedAt: null,
-            nombre: { $regex: search ? search : '', $options: 'i' }
+            nombre: { $regex: search ? search : '', $options: 'i' },
         }).sort({ createdAt: -1, score: -1 }).populate('user', 'username firstName lastName image _id');
 
         res.json(services);
@@ -125,15 +126,19 @@ ServiceController.delete = async (req, res) => {
 // Sumar vista a un servicio
 ServiceController.addView = async (req, res) => {
     try {
+        const token = req.headers.authorization.split(' ')[1];
+        const payload = jwt.verify(token, process.env.JWT_SECRET);
+        const user = await User.findById(payload.id);
         const service = await Service.findById(req.params.id);
         if (!service) return res.status(404).json({ error: 'Servicio no encontrado' });
 
         service.vistas += 1;
-        service.views.push({ user: req.user._id, createdAt: new Date() });
+        service.views.push({ user: payload.id, createdAt: new Date() });
 
         await service.save();
         res.json(service);
     } catch (error) {
+        console.error('Error al sumar vista:', error);
         res.status(500).json({ error: error.message });
     }
 };

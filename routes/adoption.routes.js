@@ -17,6 +17,7 @@ router.post(
 
 router.get('/my-adoptions', AdoptionController.getByUser);
 router.get('/', AdoptionController.getAll);
+router.get('/not-adopted', AdoptionController.getAllToAdopt);
 router.get('/:id', AdoptionController.getById);
 router.put(
     '/:id',

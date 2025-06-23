@@ -3,6 +3,7 @@ import Comment from '../models/CommunityComment.js';
 import dotenv from 'dotenv';
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
+import createUserNotification from '../utils/createUserNotification.js';
 dotenv.config();
 
 const CommunityController = {};
@@ -20,6 +21,7 @@ CommunityController.create = async (req, res) => {
         req.body.owner = user._id;
 
         const community = new Community(req.body);
+        createUserNotification(user._id, "Comunidad creada", "Se ha creado tu comunidad.", 'empresa/community');
         await community.save();
         res.status(201).json(community);
     } catch (error) {
@@ -70,6 +72,7 @@ CommunityController.getAll = async (req, res) => {
                 ...community._doc,
                 isMember,
                 isPending,
+                membersCount: community.members.length + community.admins.length + community.mods.length + community.chatAdmins.length + 1, // +1 for the owner
             });
         });
 
@@ -137,13 +140,17 @@ CommunityController.getById = async (req, res) => {
         let isMember = false;
         let isAdminOrOwner = false;
 
-        if(!user) return res.status(404).json({ message: 'User not found' });
+        if (!user) return res.status(404).json({ message: 'User not found' });
 
         const community = await Community.findOne({ _id: req.params.id, deletedAt: null })
-            .populate('owner', 'name email')
-            .populate('admins', 'name email');
+            .populate('owner', 'name image email')
+            .populate('admins', 'name image email')
+            .populate('mods', 'name image email')
+            .populate('chatAdmins', 'name image email')
+            .populate('members', 'name image email');
+
         if (!community) return res.status(404).json({ message: 'Not found' });
-    
+
         if (community.members.some(member => member._id.toString() === user._id.toString())) {
             isMember = true;
         }
@@ -156,6 +163,12 @@ CommunityController.getById = async (req, res) => {
 
         const comments = await Comment.find({ community: community._id, deletedAt: null, respondsTo: null })
             .populate('user', 'firstName lastName image email')
+
+        const membersCount = community.members.length + community.admins.length + community.mods.length + community.chatAdmins.length + 1; // +1 for the owner
+
+        const membersPhotos = [community.owner.image, ...community.admins.map(admin => admin.image), ...community.mods.map(mod => mod.image), ...community.chatAdmins.map(chatAdmin => chatAdmin.image), ...community.members.map(member => member.image)];
+        // Limit to 7 photos
+        const limitedMembersPhotos = membersPhotos.slice(0, 7);
 
         for (let i = 0; i < comments.length; i++) {
             const comment = comments[i];
@@ -176,7 +189,9 @@ CommunityController.getById = async (req, res) => {
             isMember,
             isAdminOrOwner,
             isOwner: community.owner._id.toString() === user._id.toString(),
-            isAdmin: community.admins.some(admin => admin._id.toString() === user._id.toString())
+            isAdmin: community.admins.some(admin => admin._id.toString() === user._id.toString()),
+            membersCount,
+            membersPhotos: limitedMembersPhotos,
         });
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -223,7 +238,7 @@ CommunityController.addMemberToCommunity = async (req, res) => {
         const token = req.headers.authorization.split(' ')[1];
         const payload = jwt.verify(token, process.env.JWT_SECRET);
         const user = await User.findOne({ _id: payload.id });
-    
+
         const community = await Community.findOne({ _id: req.params.id, deletedAt: null });
 
         if (!community) return res.status(404).json({ message: 'Not found' });
@@ -260,12 +275,14 @@ CommunityController.addMemberToCommunity = async (req, res) => {
             return res.status(200).json({ message: 'Solicitud enviada.' });
         } else {
             // * Agregar a community.members
-            
+
             if (community.members.includes(user._id)) {
                 return res.status(400).json({ message: 'Ya eres miembro de esta comunidad.' });
             }
 
             community.members.push(user._id);
+            createUserNotification(user._id, "Nuevo miembro", "Te has unido a la comunidad.", 'empresa/community');
+            createUserNotification(community.owner, "Nuevo miembro", `${user.firstName} ${user.lastName} se ha unido a tu comunidad.`, 'empresa/community');
 
             await community.save();
             return res.status(200).json({ message: 'Te has unido a la comunidad.' });
@@ -278,7 +295,7 @@ CommunityController.addMemberToCommunity = async (req, res) => {
 
 CommunityController.acceptOrRejectMember = async (req, res) => {
     try {
-        const {community, userId, action} = req.body;
+        const { community, userId, action } = req.body;
         const communityFind = await Community.findOne({ _id: community, deletedAt: null });
         if (!communityFind) return res.status(404).json({ message: 'Not found' });
 
@@ -298,7 +315,7 @@ CommunityController.acceptOrRejectMember = async (req, res) => {
 
 CommunityController.getPendingMembers = async (req, res) => {
     try {
-        const {email} = req.query;
+        const { email } = req.query;
 
         const community = await Community.findOne({ _id: req.params.id, deletedAt: null })
             .populate('pendingMembers', 'name email firstName lastName image')
@@ -314,7 +331,7 @@ CommunityController.getPendingMembers = async (req, res) => {
 
 CommunityController.getMembers = async (req, res) => {
     try {
-        const {email} = req.query;
+        const { email } = req.query;
         const community = await Community.findOne({ _id: req.params.id, deletedAt: null })
             .populate('members', 'name email firstName lastName image')
             .populate('admins', 'name email firstName lastName image')
@@ -367,9 +384,9 @@ CommunityController.adminsCount = async (req, res) => {
     try {
         const community = await Community.findOne({ _id: req.params.id, deletedAt: null });
         if (!community) return res.status(404).json({ message: 'Not found' });
-        res.status(200).json({ 
-            admins: community.admins.length, 
-            mods: community.mods.length, 
+        res.status(200).json({
+            admins: community.admins.length,
+            mods: community.mods.length,
             chatAdmins: community.chatAdmins.length,
             pendingMembers: community.pendingMembers.length,
             pendingComments: community.pendingComments?.length || 0,
@@ -387,11 +404,11 @@ CommunityController.addEmailToRole = async (req, res) => {
         if (!user) return res.status(404).json({ message: 'Usuario no encontrado' });
 
         const community = await Community.findOne({ _id: req.params.id, members: { $in: [user._id] }, deletedAt: null });
-        if (!community) return res.status(404).json({ 
+        if (!community) return res.status(404).json({
             message: 'El usuario no es miembro de la comunidad.'
         });
 
-        if(!community.members.includes(user._id)) {
+        if (!community.members.includes(user._id)) {
             community.members.push(user._id);
         }
 
@@ -413,7 +430,7 @@ CommunityController.addEmailToRole = async (req, res) => {
 CommunityController.getRoleMembers = async (req, res) => {
     try {
         const { role } = req.query;
-       
+
         const community = await Community.findOne({ _id: req.params.id, deletedAt: null })
             .populate(role, 'name email firstName lastName image');
 

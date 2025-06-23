@@ -581,7 +581,7 @@ authController.getNotifications = async (req, res) => {
     const token = req.headers.authorization.split(" ")[1];
     const payload = jwt.verify(token, process.env.JWT_SECRET);
     const id = payload.id;
-    const notifications = await Notification.find({ user: id }).populate("user").sort({ date: -1 }).limit(50);
+    const notifications = await Notification.find({ user: id }).populate("user").sort({ createdAt: -1 }).limit(50);
 
     res.status(200).json(notifications);
   } catch (error) {

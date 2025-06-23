@@ -3,6 +3,7 @@ import Comment from '../models/forumComment.js';
 import dotenv from 'dotenv';
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
+import createUserNotification from '../utils/createUserNotification.js';
 dotenv.config();
 
 const ForumController = {};
@@ -20,6 +21,7 @@ ForumController.create = async (req, res) => {
         req.body.user = user._id; 
 
         const forum = new Forum(req.body);
+        createUserNotification(user._id, "Foro creado", `Has creado el foro ${forum.titulo}`, "empresa/forum");
         await forum.save();
         res.status(201).json(forum);
     } catch (error) {

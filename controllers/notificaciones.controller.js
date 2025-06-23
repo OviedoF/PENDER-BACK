@@ -5,7 +5,7 @@ export const getUserNotifications = async (req, res) => {
     try {
         const token = req.headers.authorization.split(" ")[1];
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        const notifications = await Notificacion.find({ user: decoded.id });
+        const notifications = await Notificacion.find({ user: decoded.id }).sort({ createdAt: -1 });
         res.status(200).json(notifications);
     } catch (err) {
         console.log(err);

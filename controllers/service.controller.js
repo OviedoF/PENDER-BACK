@@ -5,6 +5,7 @@ import User from '../models/User.js';
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
 import { Types } from 'mongoose';
+import createUserNotification from '../utils/createUserNotification.js';
 dotenv.config();
 
 const ServiceController = {};
@@ -24,6 +25,7 @@ ServiceController.create = async (req, res) => {
 
         req.body.user = user._id;
         const service = new Service(req.body);
+        createUserNotification(user._id, 'Nuevo servicio creado', `Has creado un nuevo servicio: ${service.nombre}`, 'empresa/service');
         await service.save();
         res.status(201).json(service);
     } catch (error) {

@@ -12,6 +12,9 @@ const CommunitySchema = new mongoose.Schema({
     chatAdmins: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
     members: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
     pendingMembers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+    distrito: { type: String, required: false },
+    departamento: { type: String, required: false },
+    ciudad: { type: String, required: false },
     deletedAt: { type: Date, default: null }
 }, { timestamps: true });
 

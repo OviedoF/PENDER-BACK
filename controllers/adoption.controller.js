@@ -2,6 +2,7 @@ import Adoption from '../models/Adoption.js';
 import User from '../models/User.js';
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
+import createUserNotification from '../utils/createUserNotification.js';
 dotenv.config();
 
 const AdoptionController = {};
@@ -9,7 +10,6 @@ const AdoptionController = {};
 AdoptionController.create = async (req, res) => {
     try {
         const token = req.headers.authorization.split(' ')[1];
-        console.log(token);
         const payload = jwt.verify(token, process.env.JWT_SECRET);
         const user = await User.findOne({ _id: payload.id });
         req.body.user = user._id;
@@ -24,6 +24,7 @@ AdoptionController.create = async (req, res) => {
         }
 
         const adoption = new Adoption({ ...req.body });
+        createUserNotification(req.body.user, "Adopción creada", "Se ha creado tu adopción.", 'usuario/adoption/myAdoptions');
         await adoption.save();
         res.status(201).json(adoption);
     } catch (error) {
@@ -38,6 +39,8 @@ AdoptionController.getByUser = async (req, res) => {
         const user = await User.findOne({ _id: payload.id });
         const adoptions = await Adoption.find({ user: user._id, deletedAt: null }).sort({ createdAt: -1 });
 
+        console.log(adoptions);
+
         const parsedAdoptions = adoptions.map((adoption) => {
             return {
                 id: adoption._id,
@@ -45,7 +48,8 @@ AdoptionController.getByUser = async (req, res) => {
                 raza: adoption.raza,
                 imagen: adoption.imagen,
                 fecha: new Date(adoption.createdAt).toLocaleDateString(),
-                status: adoption.adopted ? 'adoptado' : 'por_adoptar'
+                status: adoption.adopted ? 'adoptado' : 'por_adoptar',
+                lugar: `${adoption.distrito}, ${adoption.departamento}`
             };
         });
 
@@ -58,7 +62,6 @@ AdoptionController.getByUser = async (req, res) => {
 AdoptionController.getAll = async (req, res) => {
     try {
         const {search} = req.query;
-        console.log(search);
 
         const query = search ? {
             deletedAt: null,
@@ -75,6 +78,49 @@ AdoptionController.getAll = async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 };
+
+AdoptionController.getAllToAdopt = async (req, res) => {
+  try {
+    const { search, species, sex, sizes } = req.query;
+
+    const query = {
+      deletedAt: null,
+      adopted: false,
+    };
+
+    // Filtro de búsqueda por nombre o raza
+    if (search && search.trim() !== '') {
+      query.$or = [
+        { nombre: { $regex: search, $options: 'i' } },
+        { raza: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    // Filtro por especie
+    if (species) {
+      const speciesArray = species.split(',').map(s => s.trim());
+      query.especie = { $in: speciesArray };
+    }
+
+    // Filtro por sexo
+    if (sex && sex !== 'null') {
+      query.sexo = sex.toLowerCase();
+    }
+
+    // Filtro por tamaño
+    if (sizes) {
+      const sizesArray = sizes.split(',').map(s => s.trim());
+      query.tamano = { $in: sizesArray };
+    }
+
+    const adoptions = await Adoption.find(query).sort({ createdAt: -1 });
+    console.log(adoptions);
+    res.status(200).json(adoptions);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
 
 AdoptionController.getById = async (req, res) => {
     try {
@@ -111,8 +157,33 @@ AdoptionController.update = async (req, res) => {
             req.body.imagen = `${process.env.API_URL}/api/uploads/${req.files.image[0].filename}`;
         }
 
+        const oldAdoption = await Adoption.findOne({ _id: req.params.id, deletedAt: null });
+        if (!oldAdoption) return res.status(404).json({ message: 'Not found' });
+
+        const oldImages = oldAdoption.imagenes || [];
+        if (req.body.oldImages) {
+            if(typeof req.body.oldImages === 'string') {
+                req.body.oldImages = [req.body.oldImages];
+            }
+            
+            // * Borar las imágenes que no están en el nuevo array
+            const imagesToDelete = oldImages.filter(image => !req.body.oldImages.includes(image));
+            if (imagesToDelete.length > 0) {
+                // * Aquí podrías agregar la lógica para eliminar las imágenes del servidor
+                console.log('Imágenes a eliminar:', imagesToDelete);
+            }
+            // * Actualizar las imágenes en el objeto de adopción
+            req.body.imagenes = req.body.oldImages;
+        }
+
+        if(!req.body.oldImages) {
+            req.body.imagenes = [];
+        }
         if (req.files?.images?.length > 0) {
-            req.body.imagenes = req.files.images.map(image => `${process.env.API_URL}/api/uploads/${image.filename}`);
+            req.files.images.forEach((image) => {
+                req.body.imagenes = req.body.imagenes || [];
+                req.body.imagenes.push(`${process.env.API_URL}/api/uploads/${image.filename}`);
+            });
         }
 
         const adoption = await Adoption.findOneAndUpdate(

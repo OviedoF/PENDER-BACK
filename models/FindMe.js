@@ -16,6 +16,7 @@ const FoundMeSchema = new mongoose.Schema({
     edadUnidad: { type: String, required: true, enum: ['Meses', 'Años'] },
     comentarios: { type: String },
     imagen: { type: String, required: true }, // URL de la imagen subida
+    imagenes: { type: [String], required: false, default: [] }, // Array de URLs de imágenes
     deletedAt: { type: Date, required: false, default: null },
     encontrado: { type: Boolean, required: true, default: false },
     user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },

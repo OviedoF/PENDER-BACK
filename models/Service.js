@@ -21,9 +21,9 @@ const ServiceSchema = new mongoose.Schema({
     score: { type: Number, default: 0 },
     deletedAt: { type: Date, default: null },
     ruc: { type: String, required: true },
-    times: { type: String, required: true },
-    latitude: { type: Number, required: true },
-    longitude: { type: Number, required: true },
+    times: { type: String, default: '' },
+    latitude: { type: Number },
+    longitude: { type: Number },
     latitudeDelta: { type: Number, default: 0.0922 },
     longitudeDelta: { type: Number, default: 0.0421 },
 }, { timestamps: true });

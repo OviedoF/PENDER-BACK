@@ -2,6 +2,7 @@ import User from '../models/User.js';
 import Login from '../models/Login.js';
 import Notification from '../models/Notification.js';
 import Message from "../models/Message.js";
+import Service from '../models/Service.js';
 import jwt from 'jsonwebtoken';
 import nodemailer from 'nodemailer';
 import fetch from 'node-fetch';
@@ -63,7 +64,12 @@ authController.register = async (req, res) => {
 
     const user = new User(req.body);
     await user.save();
-    return res.status(201).json({ message: "User registered successfully" });
+
+    if (req.body.role === "enterprise") {
+      return res.status(201).json({ message: `Empresa ${user.commercialName} registrada correctamente` });
+    }
+
+    return res.status(201).json({ message: "Usuario registrado correctamente" });
   } catch (error) {
     console.log(error);
     res.status(400).json({ error: error.message });
@@ -131,6 +137,24 @@ authController.registerEnterprise = async (req, res) => {
 
     const user = new User(req.body);
     await user.save();
+
+    const newService = new Service({
+      nombre: req.body.commercialName,
+      ciudad: req.body.city,
+      distrito: req.body.district,
+      departamento: req.body.department,
+      telefono: req.body.phone,
+      categoria: req.body.principalActivity,
+      etiquetas: req.body.preferences || [],
+      detalle: req.body.description,
+      imagen: req.body.image || `${process.env.API_URL}/images/default_service.png`,
+      imagenes: req.body.images || [],
+      user: user._id,
+      ruc: req.body.ruc,
+      times: req.body.times || "Lunes a Viernes 9:00 - 18:00",
+    });
+
+    await newService.save();
     res.status(201).json({ message: "User registered successfully" });
   } catch (error) {
     console.log(error);

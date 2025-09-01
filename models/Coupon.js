@@ -11,6 +11,7 @@ const CuponSchema = new Schema({
   fechaPublicacion: { type: Date, required: false },
   horaPublicacion: { type: Date, required: false },
   oculto: { type: Boolean, default: false },
+  premium: { type: Boolean, default: false },
   service: { type: mongoose.Schema.Types.ObjectId, ref: 'Service', required: true },
   vistas: { type: Number, default: 0 },
 }, {

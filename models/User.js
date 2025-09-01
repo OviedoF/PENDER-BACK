@@ -9,7 +9,7 @@ const userSchema = new mongoose.Schema({
   phone: { type: String, required: true },
   firstName: { type: String, required: true },
   lastName: { type: String, required: true },
-  role: { type: String, enum: ["user", "moderator", "admin", "enterprise"], default: "user" },
+  role: { type: String, enum: ["user", "moderator", "admin", "enterprise", "aprobation"], default: "user" },
   suscription: { type: String, enum: ["free", 'basic', "pro"], default: "free" },
   resetPasswordToken: { type: String },
   resetPasswordExpires: { type: Date },

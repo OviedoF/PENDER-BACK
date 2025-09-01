@@ -6,6 +6,7 @@ const ServiceSchema = new mongoose.Schema({
     distrito: { type: String, required: true },
     departamento: { type: String, required: true },
     telefono: { type: String, required: true },
+    direccion: { type: String, required: true },
     categoria: { type: String, required: true },
     etiquetas: { type: [String], default: [] },
     detalle: { type: String, required: true },

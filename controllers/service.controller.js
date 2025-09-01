@@ -6,6 +6,7 @@ import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
 import { Types } from 'mongoose';
 import createUserNotification from '../utils/createUserNotification.js';
+import featuredRequest from "../models/FeaturedRequest.js";
 dotenv.config();
 
 const ServiceController = {};
@@ -52,14 +53,70 @@ ServiceController.getByUser = async (req, res) => {
 ServiceController.getAll = async (req, res) => {
     try {
         const { search, category } = req.query;
-        console.log('Search:', search, 'Category:', category);
-        const services = await Service.find({
-            deletedAt: null,
-            nombre: { $regex: search ? search : '', $options: 'i' },
-        }).sort({ createdAt: -1, score: -1 }).populate('user', 'username firstName lastName image _id');
 
-        res.json(services);
+        // Filtro base (solo servicios no eliminados)
+        const filter = {
+            deletedAt: null,
+            nombre: { $regex: search ? search : "", $options: "i" },
+        };
+        if (category) filter.categoria = category;
+
+        // Traer todos los servicios con filtro
+        const allServices = await Service.find(filter)
+            .sort({ createdAt: -1, score: -1 })
+            .populate("user", "username firstName lastName image _id");
+
+        // Traer todas las featuredRequest aprobadas
+        const approvedRequests = await featuredRequest
+            .find({ status: "approved" })
+            .populate("coupon")
+            .populate({
+                path: "service",
+                populate: { path: "user", select: "username firstName lastName image _id" },
+            });
+
+        // Clasificación
+        const premium = [];
+        const approved = [];
+
+        approvedRequests.forEach((req) => {
+            if (!req.service) return;
+
+            // aplicar el mismo filtro de búsqueda y categoría al servicio
+            const matchesFilter =
+                (!search ||
+                    req.service.nombre.toLowerCase().includes(search.toLowerCase())) &&
+                (!category || req.service.categoria === category);
+
+            if (!matchesFilter) return;
+
+            if (req.coupon?.premium) {
+                premium.push({
+                    ...req.service.toObject(),
+                    discount: `${req.coupon?.valorDescuento} ${req.coupon?.tipoDescuento === 'Porcentaje' ? '%' : '$'}`,
+                });
+            } else {
+                approved.push({
+                    ...req.service.toObject(),
+                    discount: `${req.coupon?.valorDescuento} ${req.coupon?.tipoDescuento === 'Porcentaje' ? '%' : '$'}`,
+                });
+            }
+        });
+
+        // Filtrar los "regular"
+        const excludedIds = new Set([
+            ...premium.map((s) => s._id.toString()),
+            ...approved.map((s) => s._id.toString()),
+        ]);
+
+        const regular = allServices.filter(
+            (s) => !excludedIds.has(s._id.toString())
+        );
+
+        console.log(premium)
+        return res.json({ premium, approved, regular });
     } catch (error) {
+        console.error("Error en getAll:", error);
         res.status(500).json({ error: error.message });
     }
 };
@@ -301,43 +358,43 @@ ServiceController.getViewsAndReviews = async (req, res, next) => {
 
 // Obtener estadísticas de un servicio
 ServiceController.getTotals = async (req, res) => {
-  try {
-    /*── 1. Autenticación ───────────────────────────────────────────────*/
-    const token = req.headers.authorization?.split(' ')[1];
-    if (!token) return res.status(401).json({ error: 'Token faltante' });
+    try {
+        /*── 1. Autenticación ───────────────────────────────────────────────*/
+        const token = req.headers.authorization?.split(' ')[1];
+        if (!token) return res.status(401).json({ error: 'Token faltante' });
 
-    const { id: userId } = jwt.verify(token, process.env.JWT_SECRET);
-    const user = await User.findById(userId);
-    if (!user) return res.status(401).json({ error: 'Usuario no autorizado' });
+        const { id: userId } = jwt.verify(token, process.env.JWT_SECRET);
+        const user = await User.findById(userId);
+        if (!user) return res.status(401).json({ error: 'Usuario no autorizado' });
 
-    /*── 2. Validar que el servicio pertenezca al usuario ───────────────*/
-    const { serviceId } = req.params;
-    const service = await Service.findOne({ _id: serviceId, user: user._id, deletedAt: null });
-    if (!service) return res.status(404).json({ error: 'Servicio no encontrado' });
+        /*── 2. Validar que el servicio pertenezca al usuario ───────────────*/
+        const { serviceId } = req.params;
+        const service = await Service.findOne({ _id: serviceId, user: user._id, deletedAt: null });
+        if (!service) return res.status(404).json({ error: 'Servicio no encontrado' });
 
-    /*── 3. Totales del servicio ────────────────────────────────────────*/
-    // vistas (campo acumulado)
-    const totalViews = service.vistas ?? 0;
+        /*── 3. Totales del servicio ────────────────────────────────────────*/
+        // vistas (campo acumulado)
+        const totalViews = service.vistas ?? 0;
 
-    // reviews y cupones (conteo directo)
-    const [totalReviews, totalCoupons] = await Promise.all([
-      Review.countDocuments({ service: serviceId }),
-      Cupon.countDocuments({ service: serviceId })
-    ]);
+        // reviews y cupones (conteo directo)
+        const [totalReviews, totalCoupons] = await Promise.all([
+            Review.countDocuments({ service: serviceId }),
+            Cupon.countDocuments({ service: serviceId })
+        ]);
 
-    const rawStats = { totalViews, totalReviews, totalCoupons };
+        const rawStats = { totalViews, totalReviews, totalCoupons };
 
-    /*── 4. Formateo K (función aux) ────────────────────────────────────*/
-    const userStats = {
-      totalViews:    formatNumberK(rawStats.totalViews),
-      totalReviews:  formatNumberK(rawStats.totalReviews),
-      totalCoupons:  formatNumberK(rawStats.totalCoupons)
-    };
+        /*── 4. Formateo K (función aux) ────────────────────────────────────*/
+        const userStats = {
+            totalViews: formatNumberK(rawStats.totalViews),
+            totalReviews: formatNumberK(rawStats.totalReviews),
+            totalCoupons: formatNumberK(rawStats.totalCoupons)
+        };
 
-    res.json({ ...rawStats, formatted: userStats });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+        res.json({ ...rawStats, formatted: userStats });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
 };
 
 export default ServiceController;

@@ -143,6 +143,7 @@ authController.registerEnterprise = async (req, res) => {
       ciudad: req.body.city,
       distrito: req.body.district,
       departamento: req.body.department,
+      direccion: req.body.address,
       telefono: req.body.phone,
       categoria: req.body.principalActivity,
       etiquetas: req.body.preferences || [],

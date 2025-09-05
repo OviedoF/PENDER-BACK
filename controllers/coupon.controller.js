@@ -18,6 +18,7 @@ CouponController.create = async (req, res) => {
         await cupon.save()
         res.status(201).json(cupon)
     } catch (error) {
+        console.log(error)
         res.status(400).json({ error: error.message })
     }
 }

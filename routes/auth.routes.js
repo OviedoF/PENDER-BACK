@@ -29,4 +29,8 @@ router.post("/verifyPasswordResetCode", authController.verifyPasswordResetCode);
 router.post("/resetPassword", authController.resetPassword);
 router.delete('/deleteUser', authController.deleteAccount);
 
+router.get('/bank-accounts', authController.getBankAccounts);
+router.put('/add-bank', authController.saveBankAccount);
+router.delete('/delete-bank/:bankId', authController.deleteBankAccount);
+
 export default router;

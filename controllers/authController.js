@@ -680,4 +680,71 @@ authController.deleteNotification = async (req, res) => {
   }
 }
 
+authController.getBankAccounts = async (req, res) => {
+  try {
+    const token = req.headers.authorization.split(" ")[1];
+    const payload = jwt.verify(token, process.env.JWT_SECRET);
+    const id = payload.id;
+
+    const user = await User.findById(id);
+
+    if (!user) {
+      return res.status(404).json({ error: "Usuario no encontrado" });
+    }
+
+    res.status(200).json(user.banks);
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({ error: error.message });
+  }
+}
+
+authController.saveBankAccount = async (req, res) => {
+  try {
+    const token = req.headers.authorization.split(" ")[1];
+    const payload = jwt.verify(token, process.env.JWT_SECRET);
+    const id = payload.id;
+
+    const user = await User.findById(id);
+
+    if (!user) {
+      return res.status(404).json({ error: "Usuario no encontrado" });
+    }
+
+    const { name, type, number } = req.body;
+
+    user.banks.push({ name, type, number });
+    await user.save();
+
+    res.status(200).json({ message: "Cuenta bancaria guardada exitosamente" });
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({ error: error.message });
+  }
+}
+
+authController.deleteBankAccount = async (req, res) => {
+  try {
+    const token = req.headers.authorization.split(" ")[1];
+    const payload = jwt.verify(token, process.env.JWT_SECRET);
+    const id = payload.id;
+
+    const user = await User.findById(id);
+
+    if (!user) {
+      return res.status(404).json({ error: "Usuario no encontrado" });
+    }
+
+    const { bankId } = req.params;
+    console.log(bankId);
+
+    await User.findByIdAndUpdate(id, { $pull: { banks: { _id: bankId } } });
+
+    res.status(200).json({ message: "Cuenta bancaria eliminada exitosamente" });
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({ error: error.message });
+  }
+}
+
 export default authController;

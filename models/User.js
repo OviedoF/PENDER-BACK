@@ -30,6 +30,13 @@ const userSchema = new mongoose.Schema({
   images: { type: Array },
   preferences: { type: Array },
   saveHistory: { type: Boolean, default: false },
+  balance: { type: Number, default: 0 },
+
+  banks: [{
+    name: { type: String, required: true },
+    type: { type: String, required: true },
+    number: { type: String, required: true },
+  }],
 
   // NOTIFICATIONS
   loginNotifications: { type: Boolean, default: false },

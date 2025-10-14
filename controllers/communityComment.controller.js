@@ -78,8 +78,9 @@ CommentController.getById = async (req, res) => {
 
 CommentController.update = async (req, res) => {
     try {
+        console.log(req.params)
         const comment = await Comment.findOneAndUpdate(
-            { _id: req.params.id, deletedAt: null, user: req.user.id },
+            { _id: req.params.id, deletedAt: null },
             req.body,
             { new: true }
         );

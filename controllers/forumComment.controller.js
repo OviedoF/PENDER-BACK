@@ -85,10 +85,11 @@ ForumCommentController.getById = async (req, res) => {
 ForumCommentController.update = async (req, res) => {
     try {
         const comment = await ForumComment.findOneAndUpdate(
-            { _id: req.params.id, deletedAt: null, user: req.user.id },
-            req.body,
+            { _id: req.params.id, deletedAt: null },
+            { ...req.body, edited: true },
             { new: true }
         );
+        
         if (!comment) return res.status(404).json({ message: 'Not found or not authorized' });
         res.status(200).json(comment);
     } catch (error) {

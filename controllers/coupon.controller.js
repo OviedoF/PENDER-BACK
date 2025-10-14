@@ -38,6 +38,7 @@ CouponController.getAllByService = async (req, res) => {
 CouponController.getActive = async (req, res) => {
     try {
         const { serviceId } = req.params;
+        console.log("Service ID:", serviceId); // Verifica que el ID del servicio se reciba correctamente
 
         const cupones = await Cupon.find({
             service: serviceId,

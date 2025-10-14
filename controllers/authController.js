@@ -96,7 +96,7 @@ authController.updateUser = async (req, res) => {
     }
 
     if (req.file) {
-      req.body.image = `${process.env.API_URL}/uploads/${req.file.filename}`;
+      req.body.image = `${process.env.API_URL}/api/uploads/${req.file.filename}`;
     }
 
     await User.findByIdAndUpdate(payload.id, req.body);
@@ -126,7 +126,9 @@ authController.registerEnterprise = async (req, res) => {
       return res.status(400).json({ error: "Nombre comercial ya en uso" });
     }
 
-    req.body.image = `${req.file ? `${process.env.APP_URL}/uploads/${req.file.filename}` : `${process.env.API_URL}/images/default_user.png`}`;
+    console.log(req.files)
+
+    req.body.image = `${req.files.image ? `${process.env.API_URL}/api/uploads/${req.files.image[0].filename}` : `${process.env.API_URL}/images/default_user.png`}`;
     req.body.role = "enterprise";
 
     if (req.files.images && req.files.images.length > 0) {

@@ -3,6 +3,7 @@ import { Cupon } from '../models/Coupon.js';
 import Review from '../models/Review.js';
 import User from '../models/User.js';
 import jwt from 'jsonwebtoken';
+import Category from '../models/Category.js';
 import dotenv from 'dotenv';
 import { Types } from 'mongoose';
 import createUserNotification from '../utils/createUserNotification.js';
@@ -19,17 +20,45 @@ const formatNumberK = (num) => {
 // Crear un nuevo servicio
 ServiceController.create = async (req, res) => {
     try {
-        const token = req.headers.authorization.split(' ')[1];
+        // Validación de usuario
+        const token = req.headers.authorization?.split(' ')[1];
+        if (!token) return res.status(401).json({ error: 'No autorizado' });
+
         const payload = jwt.verify(token, process.env.JWT_SECRET);
         const user = await User.findById(payload.id);
         if (!user) return res.status(401).json({ error: 'Usuario no autorizado' });
 
+        // Asignar usuario
         req.body.user = user._id;
+
+        // Manejo de imagen principal
+        if (req.files?.imagen?.length > 0) {
+            const mainImage = req.files.imagen[0];
+            req.body.imagen = `${process.env.API_URL}/api/uploads/${mainImage.filename}`;
+        }
+
+        // Manejo de imágenes adicionales
+        if (req.files?.imagenes?.length > 0) {
+            req.body.imagenes = req.files.imagenes.map(file => `${process.env.API_URL}/api/uploads/${file.filename}`);
+        }
+
+        // Crear servicio
         const service = new Service(req.body);
-        createUserNotification(user._id, 'Nuevo servicio creado', `Has creado un nuevo servicio: ${service.nombre}`, 'empresa/service');
+
+        // Notificación al usuario
+        createUserNotification(
+            user._id,
+            'Nuevo servicio creado',
+            `Has creado un nuevo servicio: ${service.nombre}`,
+            'empresa/service',
+            { _id: service._id }
+        );
+
         await service.save();
         res.status(201).json(service);
+
     } catch (error) {
+        console.error(error);
         res.status(400).json({ error: error.message });
     }
 };
@@ -52,14 +81,26 @@ ServiceController.getByUser = async (req, res) => {
 // Obtener todos los servicios
 ServiceController.getAll = async (req, res) => {
     try {
-        const { search, category } = req.query;
+        const { search, category, tag } = req.query;
+        console.log("Query params:", req.query);
 
         // Filtro base (solo servicios no eliminados)
-        const filter = {
-            deletedAt: null,
-            nombre: { $regex: search ? search : "", $options: "i" },
-        };
-        if (category) filter.categoria = category;
+        const filter = { deletedAt: null };
+
+        // Buscar por nombre si hay "search"
+        if (search && search.trim()) {
+            filter.nombre = { $regex: search, $options: "i" };
+        }
+
+        // Filtrar por categoría si se envía
+        if (category && category.trim()) {
+            filter.categoria = category;
+        }
+
+        // Nuevo: filtrar por etiqueta (tag)
+        if (tag && tag.trim()) {
+            filter.etiquetas = { $regex: tag, $options: "i" };
+        }
 
         // Traer todos los servicios con filtro
         const allServices = await Service.find(filter)
@@ -82,23 +123,29 @@ ServiceController.getAll = async (req, res) => {
         approvedRequests.forEach((req) => {
             if (!req.service) return;
 
-            // aplicar el mismo filtro de búsqueda y categoría al servicio
+            // Aplicar el mismo filtro de búsqueda, categoría y tag al servicio destacado
             const matchesFilter =
                 (!search ||
                     req.service.nombre.toLowerCase().includes(search.toLowerCase())) &&
-                (!category || req.service.categoria === category);
+                (!category || req.service.categoria === category) &&
+                (!tag ||
+                    req.service.etiquetas?.some((t) =>
+                        t.toLowerCase().includes(tag.toLowerCase())
+                    ));
 
             if (!matchesFilter) return;
 
             if (req.coupon?.premium) {
                 premium.push({
                     ...req.service.toObject(),
-                    discount: `${req.coupon?.valorDescuento} ${req.coupon?.tipoDescuento === 'Porcentaje' ? '%' : '$'}`,
+                    discount: `${req.coupon?.valorDescuento} ${req.coupon?.tipoDescuento === "Porcentaje" ? "%" : "$"
+                        }`,
                 });
             } else {
                 approved.push({
                     ...req.service.toObject(),
-                    discount: `${req.coupon?.valorDescuento} ${req.coupon?.tipoDescuento === 'Porcentaje' ? '%' : '$'}`,
+                    discount: `${req.coupon?.valorDescuento} ${req.coupon?.tipoDescuento === "Porcentaje" ? "%" : "$"
+                        }`,
                 });
             }
         });
@@ -113,8 +160,7 @@ ServiceController.getAll = async (req, res) => {
             (s) => !excludedIds.has(s._id.toString())
         );
 
-        console.log(premium)
-        return res.json({ premium, approved, regular });
+        return res.status(200).json({ premium, approved, regular });
     } catch (error) {
         console.error("Error en getAll:", error);
         res.status(500).json({ error: error.message });
@@ -129,7 +175,8 @@ ServiceController.getById = async (req, res) => {
         const user = await User.findById(payload.id);
         if (!user) return res.status(401).json({ error: 'Usuario no autorizado' });
 
-        const service = await Service.findOne({ _id: req.params.id, deletedAt: null }).populate('user', 'username firstName lastName image _id');
+        const service = await Service.findOne({ _id: req.params.id, deletedAt: null })
+            .populate('user', 'username firstName lastName image _id commercialName');
         const isOwner = service.user._id.toString() === user._id.toString();
 
         if (!service) return res.status(404).json({ error: 'Servicio no encontrado' });
@@ -146,17 +193,37 @@ ServiceController.getById = async (req, res) => {
 // Actualizar un servicio
 ServiceController.update = async (req, res) => {
     try {
-        const token = req.headers.authorization.split(' ')[1];
+        console.log(req.body);
+        const token = req.headers.authorization?.split(' ')[1];
+        if (!token) return res.status(401).json({ error: 'Usuario no autorizado' });
+
         const payload = jwt.verify(token, process.env.JWT_SECRET);
         const user = await User.findById(payload.id);
         if (!user) return res.status(401).json({ error: 'Usuario no autorizado' });
+
+        // Construir la URL base del servidor
+        const baseUrl = process.env.API_URL;
+
+        // Procesar imágenes si llegan en req.files
+        if (req.files) {
+            if (req.files.imagen && req.files.imagen.length > 0) {
+                req.body.imagen = `${baseUrl}/api/uploads/${req.files.imagen[0].filename}`;
+            }
+            if (req.files.imagenes && req.files.imagenes.length > 0) {
+                req.body.imagenes = req.files.imagenes.map(file => `${baseUrl}/api/uploads/${file.filename}`);
+            }
+        }
 
         const service = await Service.findOneAndUpdate(
             { _id: req.params.id, user: user._id, deletedAt: null },
             req.body,
             { new: true }
         );
+
+        createUserNotification(user._id, 'Servicio actualizado', `El servicio ${service.title} ha sido actualizado`, null, { _id: service._id });
+
         if (!service) return res.status(404).json({ error: 'Servicio no encontrado' });
+
         res.json(service);
     } catch (error) {
         res.status(400).json({ error: error.message });
@@ -393,6 +460,112 @@ ServiceController.getTotals = async (req, res) => {
 
         res.json({ ...rawStats, formatted: userStats });
     } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// Obtener categorias
+ServiceController.getCategories = async (req, res) => {
+    try {
+        // 1️⃣ Obtener categorías activas
+        const categories = await Category.find({ deletedAt: null }).sort({ createdAt: -1 });
+
+        // 2️⃣ Agrupar los servicios por categoría y sumar las vistas
+        const servicesByCategory = await Service.aggregate([
+            { $match: { deletedAt: null } },
+            {
+                $group: {
+                    _id: "$categoria",
+                    totalVistas: { $sum: "$vistas" } // sumamos el número total de vistas
+                }
+            }
+        ]);
+
+        // 3️⃣ Crear un mapa { nombreCategoria: totalVistas }
+        const vistaMap = {};
+        servicesByCategory.forEach(s => {
+            vistaMap[s._id] = s.totalVistas;
+        });
+
+        // 4️⃣ Combinar categorías con su conteo de vistas
+        const result = categories.map(cat => ({
+            ...cat.toObject(),
+            count: vistaMap[cat.title] || 0
+        }));
+
+        res.json(result);
+    } catch (error) {
+        console.error('Error al obtener categorías:', error);
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// Categorías con tags
+ServiceController.getCategoriesWithTags = async (req, res) => {
+    try {
+        // 1️⃣ Obtener todas las categorías activas
+        const categories = await Category.find({ deletedAt: null }).sort({ createdAt: -1 });
+
+        // 2️⃣ Agrupar los tags de los servicios por categoría
+        const tagsByCategory = await Service.aggregate([
+            { $match: { deletedAt: null } },
+            {
+                $group: {
+                    _id: "$categoria",
+                    tags: { $addToSet: "$etiquetas" } // Esto genera un array de arrays
+                }
+            },
+            {
+                // Aplanar los arrays internos
+                $project: {
+                    _id: 1,
+                    tags: {
+                        $reduce: {
+                            input: "$tags",
+                            initialValue: [],
+                            in: { $setUnion: ["$$value", "$$this"] }
+                        }
+                    }
+                }
+            }
+        ]);
+
+        // 3️⃣ Crear un mapa { categoria: [tags] }
+        const tagMap = {};
+        tagsByCategory.forEach(item => {
+            tagMap[item._id] = item.tags;
+        });
+
+        // 4️⃣ Combinar categorías con sus tags
+        const result = categories.map(cat => ({
+            ...cat.toObject(),
+            tags: tagMap[cat.title] || []
+        }));
+
+        res.json(result);
+    } catch (error) {
+        console.error("❌ Error al obtener categorías con tags:", error);
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// Tags de una categoría
+ServiceController.getTagsByCategory = async (req, res) => {
+    try {
+        const { category } = req.params;
+        if (!category) return res.status(400).json({ error: 'Categoría es requerida' });
+
+        // 1️⃣ Obtener los tags únicos de los servicios en esa categoría
+        const tagsAgg = await Service.aggregate([
+            { $match: { categoria: category, deletedAt: null } },
+            { $unwind: "$etiquetas" },
+            { $group: { _id: "$etiquetas" } }
+        ]);
+
+        const tags = tagsAgg.map(tag => tag._id);
+        res.json({ category, tags });
+    } catch (error) {
+        console.error("❌ Error al obtener tags por categoría:", error);
         res.status(500).json({ error: error.message });
     }
 };

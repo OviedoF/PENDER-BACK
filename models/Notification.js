@@ -5,6 +5,7 @@ const notification = new mongoose.Schema({
     text: { type: String },
     readed: { type: Boolean, default: false },
     link: { type: String },
+    paramsStringify: { type: String },
     user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
 }, { timestamps: true });
 

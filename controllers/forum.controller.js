@@ -20,7 +20,11 @@ ForumController.create = async (req, res) => {
         }
         req.body.user = user._id; 
 
-        const forum = new Forum(req.body);
+        const forum = new Forum({
+            ...req.body,
+            categorias: JSON.parse(req.body.categorias || '[]'),
+            etiquetas: JSON.parse(req.body.etiquetas || '[]'),
+        });
         createUserNotification(user._id, "Foro creado", `Has creado el foro ${forum.titulo}`, "empresa/forum");
         await forum.save();
         res.status(201).json(forum);
@@ -36,29 +40,65 @@ ForumController.getAll = async (req, res) => {
         const payload = jwt.verify(token, process.env.JWT_SECRET);
         const user = await User.findOne({ _id: payload.id });
 
-        const { search } = req.query;
+        const { search, categorias, etiquetas } = req.query;
+    
+        const filters = { deletedAt: null };
 
-        // * Leer las 10 comunidades con más miembros
-        const forums = await Forum.find({ deletedAt: null, titulo: { $regex: search || '', $options: 'i' } })
-            .sort({ members: -1 })
-            .limit(10);
+        // 🔍 Búsqueda por título (texto libre)
+        if (search) {
+            filters.titulo = { $regex: search, $options: 'i' };
+        }
 
+        // 📂 Filtro por múltiples categorías
+        if (categorias) {
+            const categoriasArray = categorias.split(',').map(c => c.trim());
+            console.log(categoriasArray);
+            filters.categorias = { $in: categoriasArray };
+        }
 
-        let forumsToReturn = [];
+        // 🏷️ Filtro por múltiples etiquetas
+        if (etiquetas) {
+            const etiquetasArray = etiquetas.split(',').map(e => e.trim());
+            console.log(etiquetasArray);
+            filters.etiquetas = { $in: etiquetasArray };
+        }
 
-        forums.forEach(forum => {
-            forumsToReturn.push({
-                ...forum._doc,
-                isLiked: forum.likes.includes(user._id),
-                isDisliked: forum.dislikes.includes(user._id),
-            });
-        });
+        const forums = await Forum.find(filters).sort({ createdAt: -1 });
+        console.log(forums);
+
+        const forumsToReturn = forums.map(forum => ({
+            ...forum._doc,
+            isLiked: forum.likes.includes(user._id),
+            isDisliked: forum.dislikes.includes(user._id),
+        }));
 
         res.status(200).json(forumsToReturn);
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 };
+
+ForumController.getCategoriesAndTags = async (req, res) => {
+    try {
+        const forums = await Forum.find({ deletedAt: null }, 'categorias etiquetas');
+
+        // Extraer todas las categorías y etiquetas
+        const allCategorias = forums.flatMap(f => f.categorias || []);
+        const allEtiquetas = forums.flatMap(f => f.etiquetas || []);
+
+        // Devolver únicos
+        const uniqueCategorias = [...new Set(allCategorias)];
+        const uniqueEtiquetas = [...new Set(allEtiquetas)];
+
+        res.status(200).json({
+            categorias: uniqueCategorias,
+            etiquetas: uniqueEtiquetas
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
 
 ForumController.likeForum = async (req, res) => {
     try {
@@ -165,19 +205,35 @@ ForumController.getById = async (req, res) => {
         const token = req.headers.authorization.split(' ')[1];
         const payload = jwt.verify(token, process.env.JWT_SECRET);
         const user = await User.findOne({ _id: payload.id });
-        const forum = await Forum.findOne({ _id: req.params.id, deletedAt: null })
 
+        const forum = await Forum.findOne({ _id: req.params.id, deletedAt: null });
+        if (!forum) return res.status(404).json({ message: 'Not found' });
+
+        // Traer los comentarios principales (no son respuestas)
         const comments = await Comment.find({ forum: req.params.id, deletedAt: null, respondsTo: null })
             .populate('user', 'name email firstName lastName image');
 
-        if (!forum) return res.status(404).json({ message: 'Not found' });
+        // Calcular la cantidad de respuestas por cada comentario
+        const commentIds = comments.map(c => c._id);
+        const repliesCount = await Comment.aggregate([
+            { $match: { forum: forum._id, deletedAt: null, respondsTo: { $in: commentIds } } },
+            { $group: { _id: "$respondsTo", count: { $sum: 1 } } }
+        ]);
+
+        // Convertir el resultado a un objeto clave-valor para fácil acceso
+        const repliesMap = repliesCount.reduce((acc, item) => {
+            acc[item._id.toString()] = item.count;
+            return acc;
+        }, {});
 
         const forumWithComments = {
             ...forum._doc,
             comments: comments.map(comment => ({
                 ...comment._doc,
+                replies: repliesMap[comment._id.toString()] || 0,
                 isLiked: comment.likes.includes(user._id),
                 isDisliked: comment.dislikes.includes(user._id),
+                isOwner: comment.user._id.toString() === user._id.toString(),
             })),
             isLiked: forum.likes.includes(user._id),
             isDisliked: forum.dislikes.includes(user._id),
@@ -185,6 +241,7 @@ ForumController.getById = async (req, res) => {
 
         res.status(200).json(forumWithComments);
     } catch (error) {
+        console.error(error);
         res.status(500).json({ error: error.message });
     }
 };
@@ -194,10 +251,14 @@ ForumController.update = async (req, res) => {
         if (req.file) {
             req.body.imagen = `${process.env.API_URL}/api/uploads/${req.file.filename}`;
         }
-        console.log(req.file);
+
         const forum = await Forum.findOneAndUpdate(
             { _id: req.params.id, deletedAt: null },
-            req.body,
+            {
+                ...req.body,
+                ...req.body.categorias && { categorias: JSON.parse(req.body.categorias) },
+                ...req.body.etiquetas && { etiquetas: JSON.parse(req.body.etiquetas) },
+            },
             { new: true }
         );
         if (!forum) return res.status(404).json({ message: 'Not found' });

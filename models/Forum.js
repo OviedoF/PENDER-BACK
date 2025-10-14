@@ -2,7 +2,7 @@ import mongoose from 'mongoose';
 
 const ForumSchema = new mongoose.Schema({
     titulo: { type: String, required: true },
-    categoria: { type: String, required: true },
+    categorias: { type: [String], required: true },
     etiquetas: { type: [String], default: [] },
     descripcion: { type: String, required: true },
     imagen: { type: String, default: null },

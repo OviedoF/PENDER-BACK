@@ -2,7 +2,7 @@ import mongoose from 'mongoose';
 
 const ServiceSchema = new mongoose.Schema({
     nombre: { type: String, required: true },
-    ciudad: { type: String, required: true },
+    ciudad: { type: String, required: true, default: " " },
     distrito: { type: String, required: true },
     departamento: { type: String, required: true },
     telefono: { type: String, required: true },

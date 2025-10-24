@@ -220,7 +220,7 @@ ServiceController.update = async (req, res) => {
             { new: true }
         );
 
-        createUserNotification(user._id, 'Servicio actualizado', `El servicio ${service.title} ha sido actualizado`, null, { _id: service._id });
+        createUserNotification(user._id, 'Servicio actualizado', `El servicio ${service.nombre} ha sido actualizado`, null, { _id: service._id });
 
         if (!service) return res.status(404).json({ error: 'Servicio no encontrado' });
 
@@ -502,51 +502,65 @@ ServiceController.getCategories = async (req, res) => {
 
 // Categorías con tags
 ServiceController.getCategoriesWithTags = async (req, res) => {
-    try {
-        // 1️⃣ Obtener todas las categorías activas
-        const categories = await Category.find({ deletedAt: null }).sort({ createdAt: -1 });
+  try {
+    // 1️⃣ Obtener todas las categorías activas
+    const categories = await Category.find({ deletedAt: null }).sort({ createdAt: -1 });
 
-        // 2️⃣ Agrupar los tags de los servicios por categoría
-        const tagsByCategory = await Service.aggregate([
-            { $match: { deletedAt: null } },
-            {
-                $group: {
-                    _id: "$categoria",
-                    tags: { $addToSet: "$etiquetas" } // Esto genera un array de arrays
-                }
-            },
-            {
-                // Aplanar los arrays internos
-                $project: {
-                    _id: 1,
-                    tags: {
-                        $reduce: {
-                            input: "$tags",
-                            initialValue: [],
-                            in: { $setUnion: ["$$value", "$$this"] }
-                        }
-                    }
-                }
+    // 2️⃣ Agrupar los tags de los servicios por categoría
+    const tagsByCategory = await Service.aggregate([
+      { $match: { deletedAt: null } },
+      {
+        $group: {
+          _id: "$categoria",
+          tags: { $addToSet: "$etiquetas" }
+        }
+      },
+      {
+        $project: {
+          _id: 1,
+          tags: {
+            $reduce: {
+              input: "$tags",
+              initialValue: [],
+              in: { $setUnion: ["$$value", "$$this"] }
             }
-        ]);
+          }
+        }
+      }
+    ]);
 
-        // 3️⃣ Crear un mapa { categoria: [tags] }
-        const tagMap = {};
-        tagsByCategory.forEach(item => {
-            tagMap[item._id] = item.tags;
-        });
+    // 🧹 3️⃣ Sanear tags que sean strings tipo JSON
+    const cleanTags = (tags) =>
+      tags.flatMap((t) => {
+        if (Array.isArray(t)) return t;
+        if (typeof t === "string") {
+          try {
+            const parsed = JSON.parse(t);
+            return Array.isArray(parsed) ? parsed : [t];
+          } catch {
+            return [t];
+          }
+        }
+        return [t];
+      });
 
-        // 4️⃣ Combinar categorías con sus tags
-        const result = categories.map(cat => ({
-            ...cat.toObject(),
-            tags: tagMap[cat.title] || []
-        }));
+    // 4️⃣ Crear un mapa { categoria: [tags] }
+    const tagMap = {};
+    tagsByCategory.forEach((item) => {
+      tagMap[item._id] = cleanTags(item.tags);
+    });
 
-        res.json(result);
-    } catch (error) {
-        console.error("❌ Error al obtener categorías con tags:", error);
-        res.status(500).json({ error: error.message });
-    }
+    // 5️⃣ Combinar categorías con sus tags
+    const result = categories.map((cat) => ({
+      ...cat.toObject(),
+      tags: tagMap[cat.title] || []
+    }));
+
+    res.json(result);
+  } catch (error) {
+    console.error("❌ Error al obtener categorías con tags:", error);
+    res.status(500).json({ error: error.message });
+  }
 };
 
 // Tags de una categoría

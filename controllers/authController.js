@@ -60,7 +60,7 @@ authController.register = async (req, res) => {
     }
     if (req.body.birthDate) req.body.birthdate = new Date(req.body.birthDate);
 
-    req.body.image = `${req.file ? `${process.env.API_URL}/uploads/${req.file.filename}` : `${process.env.API_URL}/images/default_user.png`}`;
+    req.body.image = `${req.file ? `${process.env.API_URL}/api/uploads/${req.file.filename}` : `${process.env.API_URL}/api/images/default_user.png`}`;
 
     const user = new User(req.body);
     await user.save();
@@ -128,7 +128,7 @@ authController.registerEnterprise = async (req, res) => {
 
     console.log(req.files)
 
-    req.body.image = `${req.files.image ? `${process.env.API_URL}/api/uploads/${req.files.image[0].filename}` : `${process.env.API_URL}/images/default_user.png`}`;
+    req.body.image = `${req.files.image ? `${process.env.API_URL}/api/uploads/${req.files.image[0].filename}` : `${process.env.API_URL}/api/images/default_user.png`}`;
     req.body.role = "enterprise";
 
     if (req.files.images && req.files.images.length > 0) {
@@ -150,7 +150,7 @@ authController.registerEnterprise = async (req, res) => {
       categoria: req.body.principalActivity,
       etiquetas: req.body.preferences || [],
       detalle: req.body.description,
-      imagen: req.body.image || `${process.env.API_URL}/images/default_service.png`,
+      imagen: req.body.image || `${process.env.API_URL}/api/images/default_service.png`,
       imagenes: req.body.images || [],
       user: user._id,
       ruc: req.body.ruc,

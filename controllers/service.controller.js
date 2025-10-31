@@ -85,7 +85,7 @@ ServiceController.getAll = async (req, res) => {
         console.log("Query params:", req.query);
 
         // Filtro base (solo servicios no eliminados)
-        const filter = { deletedAt: null };
+        const filter = { deletedAt: null, oculto: false };
 
         // Buscar por nombre si hay "search"
         if (search && search.trim()) {

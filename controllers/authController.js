@@ -148,13 +148,13 @@ authController.registerEnterprise = async (req, res) => {
       direccion: req.body.address,
       telefono: req.body.phone,
       categoria: req.body.principalActivity,
-      etiquetas: req.body.preferences || [],
+      etiquetas: req.body.secondaryActivity ? [req.body.secondaryActivity] : [],
       detalle: req.body.description,
       imagen: req.body.image || `${process.env.API_URL}/api/images/default_service.png`,
       imagenes: req.body.images || [],
       user: user._id,
       ruc: req.body.ruc,
-      times: req.body.times || "Lunes a Viernes 9:00 - 18:00",
+      times: req.body.times || "",
     });
 
     await newService.save();

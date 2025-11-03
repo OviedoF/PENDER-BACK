@@ -8,6 +8,7 @@ import nodemailer from 'nodemailer';
 import fetch from 'node-fetch';
 import { v4 } from 'uuid';
 import createUserNotification from '../utils/createUserNotification.js';
+import Adoption from '../models/Adoption.js';
 
 async function verifyGoogleToken(token) {
   const response = await fetch('https://www.googleapis.com/oauth2/v1/userinfo?alt=json', {
@@ -41,6 +42,7 @@ authController.register = async (req, res) => {
     const email = req.body.email;
     const userWithSameEmail = await User.findOne({
       email: email,
+      deletedAt: null
     });
 
     if (userWithSameEmail) {
@@ -49,6 +51,7 @@ authController.register = async (req, res) => {
 
     const userWithSameUsername = await User.findOne({
       username: req.body.username,
+      deletedAt: null
     });
 
     if (userWithSameUsername) {
@@ -62,14 +65,34 @@ authController.register = async (req, res) => {
 
     req.body.image = `${req.file ? `${process.env.API_URL}/api/uploads/${req.file.filename}` : `${process.env.API_URL}/api/images/default_user.png`}`;
 
-    const user = new User(req.body);
-    await user.save();
+    const alreadyUser = await User.findOne({
+      $or: [
+        { email: email },
+        { username: req.body.username }
+      ],
+      deletedAt: null
+    });
 
-    if (req.body.role === "enterprise") {
-      return res.status(201).json({ message: `Empresa ${user.commercialName} registrada correctamente` });
+    if (alreadyUser) {
+      const user = await User.findByIdAndUpdate(alreadyUser._id, { deletedAt: null });
+
+
+
+      if (req.body.role === "enterprise") {
+        return res.status(201).json({ message: `Empresa ${user.commercialName} registrada correctamente` });
+      }
+
+      return res.status(201).json({ message: "Usuario registrado correctamente" });
+    } else {
+      const user = new User(req.body);
+      await user.save();
+
+      if (req.body.role === "enterprise") {
+        return res.status(201).json({ message: `Empresa ${user.commercialName} registrada correctamente` });
+      }
+
+      return res.status(201).json({ message: "Usuario registrado correctamente" });
     }
-
-    return res.status(201).json({ message: "Usuario registrado correctamente" });
   } catch (error) {
     console.log(error);
     res.status(400).json({ error: error.message });
@@ -112,6 +135,7 @@ authController.registerEnterprise = async (req, res) => {
     const email = req.body.email;
     const userWithSameEmail = await User.findOne({
       email: email,
+      deletedAt: null
     });
 
     if (userWithSameEmail) {
@@ -120,13 +144,12 @@ authController.registerEnterprise = async (req, res) => {
 
     const userWithSameUsername = await User.findOne({
       username: req.body.username,
+      deletedAt: null
     });
 
     if (userWithSameUsername) {
       return res.status(400).json({ error: "Nombre comercial ya en uso" });
     }
-
-    console.log(req.files)
 
     req.body.image = `${req.files.image ? `${process.env.API_URL}/api/uploads/${req.files.image[0].filename}` : `${process.env.API_URL}/api/images/default_user.png`}`;
     req.body.role = "enterprise";
@@ -135,6 +158,24 @@ authController.registerEnterprise = async (req, res) => {
       req.body.images = req.files.images.map((image) => {
         return `${process.env.API_URL}/api/uploads/${image.filename}`;
       });
+    }
+
+    const alreadyUser = await User.findOne({
+      $or: [
+        { email: email },
+        { username: req.body.username }
+      ],
+      deletedAt: null
+    });
+
+    if(alreadyUser) {
+      const user = await User.findByIdAndUpdate(alreadyUser._id, { deletedAt: null });
+
+      if (req.body.role === "enterprise") {
+        return res.status(201).json({ message: `Empresa ${user.commercialName} registrada correctamente` });
+      }
+
+      return res.status(201).json({ message: "Usuario registrado correctamente" });
     }
 
     const user = new User(req.body);
@@ -169,6 +210,10 @@ authController.login = async (req, res) => {
   try {
     const { email, password, date, device, deviceOs } = req.body;
     const user = await User.findOne({ email });
+
+    if(user.deletedAt) {
+      return res.status(404).json({ message: "Cuenta deshabilitada, vuelve a registrar el email para recuperarla." });
+    }
 
     if (!user || !(await user.comparePassword(password))) {
       if (user && user.saveHistory) {
@@ -227,8 +272,12 @@ authController.socialLogin = async (req, res) => {
       email: email,
     });
 
+    if (userWithSameEmail.deletedAt) {
+      return res.status(404).json({ message: "Cuenta deshabilitada, vuelve a registrar el email para recuperarla." });
+    }
+
     if (userWithSameEmail) {
-      const token = jwt.sign({ id: userWithSameEmail._id, role: userWithSameEmail.role }, process.env.JWT_SECRET, { expiresIn: "1d" });
+      const token = jwt.sign({ id: userWithSameEmail._id, role: userWithSameEmail.role }, process.env.JWT_SECRET);
       return res.status(200).json({ token, role: userWithSameEmail.role });
     }
 
@@ -245,7 +294,7 @@ authController.socialLogin = async (req, res) => {
 
     await user.save();
 
-    const registeredToken = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: "1d" });
+    const registeredToken = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET);
 
     return res.status(200).json({ token: registeredToken, role: user.role });
   } catch (error) {
@@ -595,7 +644,11 @@ authController.deleteAccount = async (req, res) => {
       return res.status(401).json({ error: "Contraseña incorrecta" });
     }
 
-    await User.findByIdAndDelete(id);
+    await User.findByIdAndUpdate(id, { deletedAt: new Date() });
+
+    await Service.updateMany({ user: id }, { deletedAt: new Date() });
+    await Adoption.updateMany({ user: id }, { deletedAt: new Date() });
+
     res.status(200).json({ message: "Cuenta eliminada exitosamente" });
   } catch (error) {
     console.log(error);

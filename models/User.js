@@ -40,6 +40,8 @@ const userSchema = new mongoose.Schema({
 
   // NOTIFICATIONS
   loginNotifications: { type: Boolean, default: false },
+
+  deletedAt: { type: Date, default: null },
 }, {
   timestamps: true,
 })

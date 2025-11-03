@@ -42,8 +42,14 @@ ServiceController.create = async (req, res) => {
             req.body.imagenes = req.files.imagenes.map(file => `${process.env.API_URL}/api/uploads/${file.filename}`);
         }
 
+        console.log("Cuerpo de la solicitud:", req.body);
+
+
         // Crear servicio
-        const service = new Service(req.body);
+        const service = new Service({
+            ...req.body,
+            timesObject: JSON.parse(req.body.timesObject || '{}')
+        });
 
         // Notificación al usuario
         createUserNotification(
@@ -216,7 +222,10 @@ ServiceController.update = async (req, res) => {
 
         const service = await Service.findOneAndUpdate(
             { _id: req.params.id, user: user._id, deletedAt: null },
-            req.body,
+            {
+                ...req.body,
+                timesObject: req.body.timesObject ? JSON.parse(req.body.timesObject) : {}
+            },
             { new: true }
         );
 

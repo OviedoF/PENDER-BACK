@@ -23,6 +23,7 @@ const ServiceSchema = new mongoose.Schema({
     deletedAt: { type: Date, default: null },
     ruc: { type: String, required: true },
     times: { type: String, default: '' },
+    timesObject: { type: Object, default: {} },
     latitude: { type: Number },
     longitude: { type: Number },
     latitudeDelta: { type: Number, default: 0.0922 },

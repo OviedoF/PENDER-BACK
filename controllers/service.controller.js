@@ -27,6 +27,7 @@ ServiceController.create = async (req, res) => {
         const payload = jwt.verify(token, process.env.JWT_SECRET);
         const user = await User.findById(payload.id);
         if (!user) return res.status(401).json({ error: 'Usuario no autorizado' });
+        req.body.etiquetas = JSON.parse(req.body.etiquetas || '[]');
 
         // Asignar usuario
         req.body.user = user._id;
@@ -59,6 +60,7 @@ ServiceController.create = async (req, res) => {
             'empresa/service',
             { _id: service._id }
         );
+
 
         await service.save();
         res.status(201).json(service);
@@ -200,6 +202,7 @@ ServiceController.getById = async (req, res) => {
 ServiceController.update = async (req, res) => {
     try {
         console.log(req.body);
+        req.body.etiquetas = JSON.parse(req.body.etiquetas || '[]');
         const token = req.headers.authorization?.split(' ')[1];
         if (!token) return res.status(401).json({ error: 'Usuario no autorizado' });
 

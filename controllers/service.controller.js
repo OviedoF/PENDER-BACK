@@ -9,6 +9,9 @@ import { Types } from 'mongoose';
 import createUserNotification from '../utils/createUserNotification.js';
 import featuredRequest from "../models/FeaturedRequest.js";
 dotenv.config();
+import fs from 'fs';
+import path from 'path';
+const __dirname = path.resolve();
 
 const ServiceController = {};
 
@@ -200,56 +203,104 @@ ServiceController.getById = async (req, res) => {
 
 // Actualizar un servicio
 ServiceController.update = async (req, res) => {
-    try {
-        console.log(req.body);
-        req.body.etiquetas = typeof req.body.etiquetas === 'string' ? JSON.parse(req.body.etiquetas) : req.body.etiquetas;
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ error: 'Usuario no autorizado' });
+  try {
+    console.log('Body recibido:', req.body);
 
-        const payload = jwt.verify(token, process.env.JWT_SECRET);
-        const user = await User.findById(payload.id);
-        if (!user) return res.status(401).json({ error: 'Usuario no autorizado' });
-
-        // Construir la URL base del servidor
-        const baseUrl = process.env.API_URL;
-
-        // Procesar imágenes si llegan en req.files
-        if (req.files) {
-            if (req.files.imagen && req.files.imagen.length > 0) {
-                req.body.imagen = `${baseUrl}/api/uploads/${req.files.imagen[0].filename}`;
-            }
-
-            if (!req.files.imagen) {
-                return res.status(400).json({ error: 'La imagen principal es requerida.' });
-            }
-
-            if (req.files.imagenes && req.files.imagenes.length > 0) {
-                req.body.imagenes = req.files.imagenes.map(file => `${baseUrl}/api/uploads/${file.filename}`);
-            }
-
-            if (req.files.imagenes && req.files.imagenes.length === 0) {
-                req.body.imagenes = [];
-            }
-        }
-
-        const service = await Service.findOneAndUpdate(
-            { _id: req.params.id, user: user._id, deletedAt: null },
-            {
-                ...req.body,
-                timesObject: req.body.timesObject ? JSON.parse(req.body.timesObject) : {}
-            },
-            { new: true }
-        );
-
-        createUserNotification(user._id, 'Servicio actualizado', `El servicio ${service.nombre} ha sido actualizado`, null, { _id: service._id });
-
-        if (!service) return res.status(404).json({ error: 'Servicio no encontrado' });
-
-        res.json(service);
-    } catch (error) {
-        console.log(error)
-        res.status(400).json({ error: error.message });
+    // Parsear campos complejos
+    if (typeof req.body.etiquetas === 'string') {
+      try {
+        req.body.etiquetas = JSON.parse(req.body.etiquetas);
+      } catch {
+        req.body.etiquetas = [];
+      }
     }
+
+    if (typeof req.body.deletedImages === 'string') {
+      try {
+        req.body.deletedImages = JSON.parse(req.body.deletedImages);
+      } catch {
+        req.body.deletedImages = [];
+      }
+    }
+
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token) return res.status(401).json({ error: 'Usuario no autorizado' });
+
+    const payload = jwt.verify(token, process.env.JWT_SECRET);
+    const user = await User.findById(payload.id);
+    if (!user) return res.status(401).json({ error: 'Usuario no autorizado' });
+
+    const baseUrl = process.env.API_URL;
+
+    // Subir nuevas imágenes
+    if (req.files) {
+      if (req.files.imagen && req.files.imagen.length > 0) {
+        req.body.imagen = `${baseUrl}/api/uploads/${req.files.imagen[0].filename}`;
+      }
+
+      if (req.files.imagenes && req.files.imagenes.length > 0) {
+        req.body.imagenes = req.files.imagenes.map(
+          (file) => `${baseUrl}/api/uploads/${file.filename}`
+        );
+      }
+    }
+
+    // Buscar el servicio existente
+    const service = await Service.findOne({
+      _id: req.params.id,
+      user: user._id,
+      deletedAt: null,
+    });
+
+    if (!service) return res.status(404).json({ error: 'Servicio no encontrado' });
+
+    // 🧹 Eliminar imágenes viejas del modelo y del servidor
+    if (req.body.deletedImages && Array.isArray(req.body.deletedImages)) {
+      for (const imgUrl of req.body.deletedImages) {
+        // Eliminar del array del modelo
+        service.imagenes = service.imagenes.filter((img) => img !== imgUrl);
+
+        // Borrar archivo físico si existe
+        const fileName = imgUrl.split('/api/uploads/')[1];
+        if (fileName) {
+          const filePath = path.join(__dirname, 'public', 'uploads', fileName);
+          if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+            console.log(`🗑️ Imagen eliminada: ${filePath}`);
+          }
+        }
+      }
+    }
+
+    // Actualizar otros campos
+    Object.assign(service, {
+      ...req.body,
+      timesObject: req.body.timesObject
+        ? JSON.parse(req.body.timesObject)
+        : service.timesObject,
+      imagenes: [
+        ...service.imagenes,
+        ...(req.body.imagenes || []),
+      ],
+    });
+
+    // Guardar cambios
+    await service.save();
+
+    // Notificación opcional
+    createUserNotification(
+      user._id,
+      'Servicio actualizado',
+      `El servicio ${service.nombre} ha sido actualizado`,
+      null,
+      { _id: service._id }
+    );
+
+    res.json(service);
+  } catch (error) {
+    console.error(error);
+    res.status(400).json({ error: error.message });
+  }
 };
 
 // Eliminar un servicio (borrado lógico)

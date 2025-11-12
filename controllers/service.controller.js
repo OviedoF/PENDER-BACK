@@ -218,8 +218,17 @@ ServiceController.update = async (req, res) => {
             if (req.files.imagen && req.files.imagen.length > 0) {
                 req.body.imagen = `${baseUrl}/api/uploads/${req.files.imagen[0].filename}`;
             }
+
+            if (!req.files.imagen) {
+                return res.status(400).json({ error: 'La imagen principal es requerida.' });
+            }
+
             if (req.files.imagenes && req.files.imagenes.length > 0) {
                 req.body.imagenes = req.files.imagenes.map(file => `${baseUrl}/api/uploads/${file.filename}`);
+            }
+
+            if (req.files.imagenes && req.files.imagenes.length === 0) {
+                req.body.imagenes = [];
             }
         }
 

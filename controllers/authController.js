@@ -211,6 +211,8 @@ authController.login = async (req, res) => {
     const { email, password, date, device, deviceOs } = req.body;
     const user = await User.findOne({ email });
 
+    if(!user) return res.status(401).json({ message: "Credenciales inválidas" });
+
     if(user.deletedAt) {
       return res.status(404).json({ message: "Cuenta deshabilitada, vuelve a registrar el email para recuperarla." });
     }

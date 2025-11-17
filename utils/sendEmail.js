@@ -13,7 +13,7 @@ export const sendVerificationEmail = async ({ to, code }) => {
 
 
   await transporter.sendMail({
-    from: `"Petnder" <${process.env.MAIL_USERNAME}>`,
+    from: `"Pender" <${process.env.MAIL_USERNAME}>`,
     to,
     subject: 'Tu código de verificación',
     html: `<!DOCTYPE html>
@@ -77,7 +77,7 @@ export const sendVerificationEmail = async ({ to, code }) => {
         <!-- Pie de página -->
         <tr>
             <td style="background-color: #ED3954; padding: 20px; text-align: center; color: white;">
-                <p style="margin: 0; font-size: 14px;">© 2025 Petnder. Todos los derechos reservados.</p>
+                <p style="margin: 0; font-size: 14px;">© 2025 Pender. Todos los derechos reservados.</p>
                 <p style="margin: 10px 0 0; font-size: 12px;">Este es un correo automático, por favor no respondas a este mensaje.</p>
             </td>
         </tr>

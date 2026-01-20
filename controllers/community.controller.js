@@ -272,6 +272,9 @@ CommunityController.addMemberToCommunity = async (req, res) => {
             community.pendingMembers.push(user._id);
 
             await community.save();
+            createUserNotification(community.owner, "Nueva solicitud", `${user.firstName} ${user.lastName} ha solicitado unirse a tu comunidad.`, 'empresa/community/view', {
+                id: community._id
+            });
             return res.status(200).json({ message: 'Solicitud enviada.' });
         } else {
             // * Agregar a community.members

@@ -1,22 +1,27 @@
 import Agenda from 'agenda';
-import dotenv from 'dotenv';
 import couponsJob from '../jobs/couponsJob.js';
-dotenv.config();
-
-const mongoConnectionString = process.env.MONGO_URI || 'mongodb://localhost:27017/petnder';
 
 const agenda = new Agenda({
   db: {
-    address: mongoConnectionString,
+    address: process.env.MONGO_URI,
     collection: 'agendaJobs',
   },
 });
 
 couponsJob(agenda);
 
-const startAgenda = async () => {
-  await agenda.start();
-  await agenda.every('1 minute', 'coupons_test');
-};
+agenda.on('ready', async () => {
+  console.log('✅ Agenda READY');
 
-export default startAgenda;
+  await agenda.start();
+
+  await agenda.every('1 minute', 'coupons_test');
+
+  console.log('🕒 Job coupons_test programado');
+});
+
+agenda.on('error', (err) => {
+  console.error('❌ Agenda error:', err);
+});
+
+export default agenda;

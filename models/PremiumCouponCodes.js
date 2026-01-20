@@ -3,8 +3,7 @@ import mongoose from 'mongoose';
 const CouponCodesSchema = new mongoose.Schema({
   code: {
     type: String,
-    required: true,
-    unique: true
+    required: true
   },
   coupon: {
     type: mongoose.Schema.Types.ObjectId,

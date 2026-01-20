@@ -19,7 +19,7 @@ CategoryController.create = async (req, res) => {
 
 CategoryController.getAll = async (req, res) => {
     try {
-        const categories = await Category.find({ deletedAt: null });
+        const categories = await Category.find({ deletedAt: null }).sort({ createdAt: -1 });
         res.status(200).json(categories);
     } catch (error) {
         res.status(500).json({ error: error.message });

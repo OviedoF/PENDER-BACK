@@ -14,6 +14,12 @@ CouponController.create = async (req, res) => {
         const user = await User.findById(payload.id)
         if (!user) return res.status(401).json({ error: 'Usuario no autorizado' })
 
+        const existingCoupon = await Cupon.findOne({ code: req.body.code, service: req.body.service })
+        
+        if (existingCoupon) {
+            return res.status(400).json({ error: 'El código de cupón ya existe para este servicio' })
+        }
+
         const cupon = new Cupon(req.body)
         await cupon.save()
         res.status(201).json(cupon)

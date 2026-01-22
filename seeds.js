@@ -109,7 +109,10 @@ async function seedCategories() {
       },
     ];
 
-    await Category.insertMany(benefitCards);
+    for (const categoryData of benefitCards) {
+      const category = new Category(categoryData);
+      await category.save();
+    }
     console.log('✅ Categorías creadas exitosamente.');
   } catch (error) {
     console.error('❌ Error al crear las categorías:', error.message);

@@ -34,87 +34,125 @@ FoundMeController.create = async (req, res) => {
 };
 
 FoundMeController.getByUser = async (req, res) => {
-    try {
-        const { tipo, page, search } = req.query;
-        const limit = 10;
-        const skip = (page - 1) * limit;
-        let foundMe = [];
-        const token = req.headers.authorization.split(' ')[1];
-        const payload = jwt.verify(token, process.env.JWT_SECRET);
-        const userObject = await User.findOne({ _id: payload.id });
-        const user = userObject._id;
+  try {
+    const { tipo, page, search } = req.query;
+    const limit = 10;
+    const skip = (page - 1) * limit;
 
-        if (search) {
-            foundMe = await FindMe.find({ nombre: { $regex: search, $options: 'i' }, deletedAt: null, tipo, user }).sort({ createdAt: -1 }).limit(limit).skip(skip);
-        } else {
-            foundMe = await FindMe.find({ tipo, deletedAt: null, user }).sort({ createdAt: -1 }).limit(limit).skip(skip);
-        }
+    const token = req.headers.authorization.split(' ')[1];
+    const payload = jwt.verify(token, process.env.JWT_SECRET);
+    const userObject = await User.findOne({ _id: payload.id });
+    const user = userObject._id;
 
-        const parsedFoundMe = foundMe.map((foundMe) => {
-            return {
-                id: foundMe._id,
-                nombre: foundMe.nombre,
-                raza: foundMe.raza,
-                imagen: foundMe.imagen,
-                locacion: `${foundMe.ciudad}, ${foundMe.distrito}`,
-                fecha: new Date(foundMe.createdAt).toLocaleDateString(),
-                finished: foundMe.finished
-            };
-        });
+    let filter = {
+      tipo,
+      deletedAt: null,
+      user,
+    };
 
-        res.status(200).json(parsedFoundMe);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
+    // 🔎 SEARCH UNIFICADO
+    if (search && search.trim()) {
+      const regex = new RegExp(search, 'i');
+
+      filter.$or = [
+        { nombre: regex },
+        { raza: regex },
+        { especie: regex },
+        { tamano: regex },
+        { sexo: regex },
+        { ciudad: regex },
+        { distrito: regex },
+        { departamento: regex },
+        { comentarios: regex },
+        { tipo: regex },
+      ];
     }
+
+    const foundMe = await FindMe
+      .find(filter)
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .skip(skip);
+
+    const parsedFoundMe = foundMe.map((foundMe) => ({
+      id: foundMe._id,
+      nombre: foundMe.nombre,
+      raza: foundMe.raza,
+      imagen: foundMe.imagen,
+      locacion: `${foundMe.ciudad}, ${foundMe.distrito}`,
+      fecha: new Date(foundMe.createdAt).toLocaleDateString(),
+      finished: foundMe.finished,
+    }));
+
+    res.status(200).json(parsedFoundMe);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 };
 
 FoundMeController.getAll = async (req, res) => {
-    try {
-        const { tipo, page, search, species, sex, sizes } = req.query;
-        console.log(req.query);
-        const limit = 10;
-        const skip = (page - 1) * limit;
-        let filter = {};
+  try {
+    const { tipo, page, search, species, sex, sizes } = req.query;
+    const limit = 10;
+    const skip = (page - 1) * limit;
 
-        if (search) {
-            filter = { nombre: { $regex: search, $options: 'i' }, deletedAt: null, tipo }
-        } else {
-            filter = { tipo, deletedAt: null }
-        }
+    let filter = {
+      tipo,
+      deletedAt: null,
+    };
 
-        if (species) {
-            const speciesArray = species.split(',').map(s => s.trim());
-            filter.especie = { $in: speciesArray };
-        }
+    // 🔎 SEARCH UNIFICADO
+    if (search && search.trim()) {
+      const regex = new RegExp(search, 'i');
 
-        // Filtro por sexo
-        if (sex && sex !== 'null') {
-            filter.sexo = sex.toLowerCase();
-        }
-
-        // Filtro por tamaño
-        if (sizes) {
-            const sizesArray = sizes.split(',').map(s => s.trim());
-            filter.tamano = { $in: sizesArray };
-        }
-
-        const foundMe = await FindMe.find(filter).sort({ createdAt: -1 }).limit(limit).skip(skip);
-
-        const parsedFoundMe = foundMe.map((foundMe) => {
-            return {
-                id: foundMe._id,
-                nombre: foundMe.nombre,
-                raza: foundMe.raza,
-                imagen: foundMe.imagen,
-                locacion: `${foundMe.ciudad}, ${foundMe.distrito}`,
-                fecha: new Date(foundMe.createdAt).toLocaleDateString()
-            };
-        });
-
-        res.status(200).json(parsedFoundMe);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
+      filter.$or = [
+        { nombre: regex },
+        { raza: regex },
+        { especie: regex },
+        { tamano: regex },
+        { sexo: regex },
+        { ciudad: regex },
+        { distrito: regex },
+        { departamento: regex },
+        { comentarios: regex },
+        { tipo: regex },
+      ];
     }
+
+    // 🔹 Filtros existentes (NO se tocan)
+    if (species) {
+      const speciesArray = species.split(',').map(s => s.trim());
+      filter.especie = { $in: speciesArray };
+    }
+
+    if (sex && sex !== 'null') {
+      filter.sexo = sex.toLowerCase();
+    }
+
+    if (sizes) {
+      const sizesArray = sizes.split(',').map(s => s.trim());
+      filter.tamano = { $in: sizesArray };
+    }
+
+    const foundMe = await FindMe
+      .find(filter)
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .skip(skip);
+
+    const parsedFoundMe = foundMe.map((foundMe) => ({
+      id: foundMe._id,
+      nombre: foundMe.nombre,
+      raza: foundMe.raza,
+      imagen: foundMe.imagen,
+      locacion: `${foundMe.ciudad}, ${foundMe.distrito}`,
+      fecha: new Date(foundMe.createdAt).toLocaleDateString('es-ES'),
+    }));
+
+    res.status(200).json(parsedFoundMe);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 };
 
 FoundMeController.getById = async (req, res) => {

@@ -249,7 +249,7 @@ authController.login = async (req, res) => {
 
     if (user.loginNotifications) createUserNotification(user._id, "Inicio de sesión exitoso", "Has iniciado sesión correctamente.", 'empresa/config/security');
 
-    res.status(200).json({ token, role: user.role });
+    res.status(200).json({ token, role: user.role, suscription: user.suscription });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }

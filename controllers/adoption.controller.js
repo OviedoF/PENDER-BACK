@@ -60,67 +60,73 @@ AdoptionController.getByUser = async (req, res) => {
 };    
 
 AdoptionController.getAll = async (req, res) => {
-    try {
-        const {search} = req.query;
-
-        const query = search ? {
-            deletedAt: null,
-            $or: [
-                { nombre: { $regex: search, $options: 'i' } },
-                { raza: { $regex: search, $options: 'i' } }
-            ]
-        } : { deletedAt: null };
-
-        const adoptions = await Adoption.find(query).sort({ createdAt: -1 });
-
-        res.status(200).json(adoptions);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-};
-
-AdoptionController.getAllToAdopt = async (req, res) => {
   try {
-    const { search, species, sex, sizes } = req.query;
+    const { search } = req.query;
 
     const query = {
       deletedAt: null,
-      adopted: false,
     };
 
-    // Filtro de búsqueda por nombre o raza
-    if (search && search.trim() !== '') {
+    if (search && search.trim()) {
+      const regex = new RegExp(search, 'i');
+
       query.$or = [
-        { nombre: { $regex: search, $options: 'i' } },
-        { raza: { $regex: search, $options: 'i' } }
+        { nombre: regex },
+        { raza: regex },
+        { especie: regex },
+        { tamano: regex },
+        { sexo: regex },
+        { ciudad: regex },
+        { distrito: regex },
+        { departamento: regex },
+        { comentarios: regex },
       ];
     }
 
-    // Filtro por especie
-    if (species) {
-      const speciesArray = species.split(',').map(s => s.trim());
-      query.especie = { $in: speciesArray };
-    }
+    const adoptions = await Adoption
+      .find(query)
+      .sort({ createdAt: -1 });
 
-    // Filtro por sexo
-    if (sex && sex !== 'null') {
-      query.sexo = sex.toLowerCase();
-    }
-
-    // Filtro por tamaño
-    if (sizes) {
-      const sizesArray = sizes.split(',').map(s => s.trim());
-      query.tamano = { $in: sizesArray };
-    }
-
-    const adoptions = await Adoption.find(query).sort({ createdAt: -1 });
-    console.log(adoptions);
     res.status(200).json(adoptions);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 };
 
+AdoptionController.getAllToAdopt = async (req, res) => {
+  try {
+    const { search } = req.query;
+
+    const query = {
+      deletedAt: null,
+      adopted: false,
+    };
+
+    if (search && search.trim()) {
+      const regex = new RegExp(search, 'i');
+
+      query.$or = [
+        { nombre: regex },
+        { raza: regex },
+        { especie: regex },
+        { tamano: regex },
+        { sexo: regex },
+        { ciudad: regex },
+        { distrito: regex },
+        { departamento: regex },
+        { comentarios: regex },
+      ];
+    }
+
+    const adoptions = await Adoption
+      .find(query)
+      .sort({ createdAt: -1 });
+
+    res.status(200).json(adoptions);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
 
 AdoptionController.getById = async (req, res) => {
     try {

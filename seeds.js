@@ -80,7 +80,7 @@ async function seedCategories() {
       {
         title: "Salud y clínica",
         description: "Descuentos y convenios con clínicas veterinarias y servicios de salud animal.",
-        image: `${process.env.API_URL}/api/images/service/salud.png`,
+        image: `${process.env.API_URL}/api/images/service/salud.jpg`,
       },
       {
         title: "Grooming",
@@ -95,17 +95,17 @@ async function seedCategories() {
       {
         title: "Tiendas",
         description: "Descubre las mejores tiendas de productos y accesorios para tu mascota.",
-        image: `${process.env.API_URL}/api/images/service/tiendas.png`,
+        image: `${process.env.API_URL}/api/images/service/tiendas.jpg`,
       },
       {
         title: "Guardería y hospedaje",
         description: "Lugares seguros y confiables donde tu mascota puede quedarse cuando no estás.",
-        image: `${process.env.API_URL}/api/images/service/guarderia.png`,
+        image: `${process.env.API_URL}/api/images/service/guarderia.jpg`,
       },
       {
         title: "Albergues y fundaciones",
         description: "Organizaciones dedicadas al rescate y adopción de mascotas necesitadas.",
-        image: `${process.env.API_URL}/api/images/service/albergues.png`,
+        image: `${process.env.API_URL}/api/images/service/albergues.jpg`,
       },
     ];
 

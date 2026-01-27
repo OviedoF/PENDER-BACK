@@ -14,6 +14,7 @@ const CuponSchema = new Schema({
   premium: { type: Boolean, default: false },
   service: { type: mongoose.Schema.Types.ObjectId, ref: 'Service', required: true },
   vistas: { type: Number, default: 0 },
+  deletedAt: { type: Date, default: null },
 }, {
   timestamps: true,
 })

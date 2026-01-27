@@ -14,7 +14,7 @@ CouponController.create = async (req, res) => {
         const user = await User.findById(payload.id)
         if (!user) return res.status(401).json({ error: 'Usuario no autorizado' })
 
-        const existingCoupon = await Cupon.findOne({ code: req.body.code, service: req.body.service })
+        const existingCoupon = await Cupon.findOne({ code: req.body.code, service: req.body.service, deletedAt: null })
         
         if (existingCoupon) {
             return res.status(400).json({ error: 'El código de cupón ya existe para este servicio' })
@@ -33,7 +33,7 @@ CouponController.create = async (req, res) => {
 CouponController.getAllByService = async (req, res) => {
     try {
         const { serviceId } = req.params
-        const cupones = await Cupon.find({ service: serviceId }).sort({ createdAt: -1 })
+        const cupones = await Cupon.find({ service: serviceId, deletedAt: null }).sort({ createdAt: -1 })
         res.json(cupones)
     } catch (error) {
         res.status(500).json({ error: error.message })
@@ -49,7 +49,8 @@ CouponController.getActive = async (req, res) => {
         const cupones = await Cupon.find({
             service: serviceId,
             oculto: false,
-            activarProgramacion: false
+            activarProgramacion: false,
+            deletedAt: null
         }).sort({ createdAt: -1 })
 
         res.json(cupones)
@@ -67,6 +68,7 @@ CouponController.getScheduled = async (req, res) => {
             service: serviceId,
             oculto: false,
             activarProgramacion: true,
+            deletedAt: null
         }).sort({ createdAt: -1 })
         console.log(cupones)
 
@@ -83,7 +85,8 @@ CouponController.getHidden = async (req, res) => {
 
         const cupones = await Cupon.find({
             service: serviceId,
-            oculto: true
+            oculto: true,
+            deletedAt: null
         }).sort({ createdAt: -1 })
 
         res.json(cupones)
@@ -96,7 +99,10 @@ CouponController.getHidden = async (req, res) => {
 CouponController.getById = async (req, res) => {
     try {
         const { id } = req.params
-        const cupon = await Cupon.findById(id)
+        const cupon = await Cupon.findById({
+            _id: id,
+            deletedAt: null
+        })
         if (!cupon) return res.status(404).json({ error: 'Cupón no encontrado' })
         res.json(cupon)
     } catch (error) {
@@ -120,7 +126,7 @@ CouponController.update = async (req, res) => {
 CouponController.delete = async (req, res) => {
     try {
         const { id } = req.params
-        const cupon = await Cupon.findByIdAndDelete(id)
+        const cupon = await Cupon.findByIdAndUpdate(id, { deletedAt: new Date() }, { new: true })
         if (!cupon) return res.status(404).json({ error: 'Cupón no encontrado' })
         res.json({ message: 'Cupón eliminado correctamente' })
     } catch (error) {

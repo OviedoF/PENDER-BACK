@@ -3,6 +3,7 @@ import User from '../models/User.js';
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
 import createUserNotification from '../utils/createUserNotification.js';
+import createSystemNotification from '../utils/createSystemNotification.js';
 dotenv.config();
 
 const AdoptionController = {};
@@ -17,7 +18,7 @@ AdoptionController.create = async (req, res) => {
             req.body.imagen = `${process.env.API_URL}/api/uploads/${req.files.image[0].filename}`;
         }
 
-        if(req.files.images && req.files.images.length > 0) {
+        if (req.files.images && req.files.images.length > 0) {
             req.body.imagenes = req.files.images.map((image) => {
                 return `${process.env.API_URL}/api/uploads/${image.filename}`;
             });
@@ -57,75 +58,75 @@ AdoptionController.getByUser = async (req, res) => {
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
-};    
+};
 
 AdoptionController.getAll = async (req, res) => {
-  try {
-    const { search } = req.query;
+    try {
+        const { search } = req.query;
 
-    const query = {
-      deletedAt: null,
-    };
+        const query = {
+            deletedAt: null,
+        };
 
-    if (search && search.trim()) {
-      const regex = new RegExp(search, 'i');
+        if (search && search.trim()) {
+            const regex = new RegExp(search, 'i');
 
-      query.$or = [
-        { nombre: regex },
-        { raza: regex },
-        { especie: regex },
-        { tamano: regex },
-        { sexo: regex },
-        { ciudad: regex },
-        { distrito: regex },
-        { departamento: regex },
-        { comentarios: regex },
-      ];
+            query.$or = [
+                { nombre: regex },
+                { raza: regex },
+                { especie: regex },
+                { tamano: regex },
+                { sexo: regex },
+                { ciudad: regex },
+                { distrito: regex },
+                { departamento: regex },
+                { comentarios: regex },
+            ];
+        }
+
+        const adoptions = await Adoption
+            .find(query)
+            .sort({ createdAt: -1 });
+
+        res.status(200).json(adoptions);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
     }
-
-    const adoptions = await Adoption
-      .find(query)
-      .sort({ createdAt: -1 });
-
-    res.status(200).json(adoptions);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
 };
 
 AdoptionController.getAllToAdopt = async (req, res) => {
-  try {
-    const { search } = req.query;
+    try {
+        const { search } = req.query;
 
-    const query = {
-      deletedAt: null,
-      adopted: false,
-    };
+        const query = {
+            deletedAt: null,
+            adopted: false,
+        };
 
-    if (search && search.trim()) {
-      const regex = new RegExp(search, 'i');
+        if (search && search.trim()) {
+            const regex = new RegExp(search, 'i');
 
-      query.$or = [
-        { nombre: regex },
-        { raza: regex },
-        { especie: regex },
-        { tamano: regex },
-        { sexo: regex },
-        { ciudad: regex },
-        { distrito: regex },
-        { departamento: regex },
-        { comentarios: regex },
-      ];
+            query.$or = [
+                { nombre: regex },
+                { raza: regex },
+                { especie: regex },
+                { tamano: regex },
+                { sexo: regex },
+                { ciudad: regex },
+                { distrito: regex },
+                { departamento: regex },
+                { comentarios: regex },
+            ];
+        }
+
+        const adoptions = await Adoption
+            .find(query)
+            .sort({ createdAt: -1 });
+
+        res.status(200).json(adoptions);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
     }
-
-    const adoptions = await Adoption
-      .find(query)
-      .sort({ createdAt: -1 });
-
-    res.status(200).json(adoptions);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
 };
 
 AdoptionController.getById = async (req, res) => {
@@ -137,8 +138,8 @@ AdoptionController.getById = async (req, res) => {
 
         const isOwner = adoption.user.toString() === user._id.toString();
 
-        if (!adoption) return res.status(404).json({ 
-            message: 'No se encontró la adopcion' 
+        if (!adoption) return res.status(404).json({
+            message: 'No se encontró la adopcion'
         });
 
         res.status(200).json({
@@ -168,10 +169,10 @@ AdoptionController.update = async (req, res) => {
 
         const oldImages = oldAdoption.imagenes || [];
         if (req.body.oldImages) {
-            if(typeof req.body.oldImages === 'string') {
+            if (typeof req.body.oldImages === 'string') {
                 req.body.oldImages = [req.body.oldImages];
             }
-            
+
             // * Borar las imágenes que no están en el nuevo array
             const imagesToDelete = oldImages.filter(image => !req.body.oldImages.includes(image));
             if (imagesToDelete.length > 0) {
@@ -182,7 +183,7 @@ AdoptionController.update = async (req, res) => {
             req.body.imagenes = req.body.oldImages;
         }
 
-        if(!req.body.oldImages) {
+        if (!req.body.oldImages) {
             req.body.imagenes = [];
         }
         if (req.files?.images?.length > 0) {
@@ -197,9 +198,16 @@ AdoptionController.update = async (req, res) => {
             req.body,
             { new: true }
         );
-        
+
+        if (adoption.adopted) {
+            await createSystemNotification({
+                title: `${adoption.nombre} fue adoptado/a en Petnder!`,
+                text: `Una mascota más ha sido adoptada en Petnder 🤗`,
+            });
+        }
+
         if (!adoption) return res.status(404).json({ message: 'Not found' });
-        
+
         res.status(200).json(adoption);
     } catch (error) {
         res.status(400).json({ error: error.message });

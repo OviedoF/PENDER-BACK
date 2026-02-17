@@ -105,6 +105,9 @@ authController.updateUser = async (req, res) => {
     const payload = jwt.verify(token, process.env.JWT_SECRET);
     const user = await User.findById(payload.id);
 
+    console.log(req.files);
+    console.log(req.file);
+    
     if (!user) {
       return res.status(404).json({ error: "Usuario no encontrado" });
     }
@@ -382,6 +385,8 @@ authController.editUser = async (req, res) => {
     if (!req.body.dni) delete req.body.dni;
     if (!req.body.instagram) delete req.body.instagram;
     if (!req.body.phone) delete req.body.phone;
+    console.log(req.files);
+    console.log(req.file);
 
     if (req.body.email && req.body.email !== user.email) {
       const userWithSameEmail = await User.findOne({

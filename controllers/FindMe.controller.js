@@ -2,6 +2,7 @@ import FindMe from '../models/FindMe.js';
 import User from '../models/User.js';
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
+import createSystemNotification from '../utils/createSystemNotification.js';
 dotenv.config();
 
 const FoundMeController = {};
@@ -146,6 +147,7 @@ FoundMeController.getAll = async (req, res) => {
       raza: foundMe.raza,
       imagen: foundMe.imagen,
       locacion: `${foundMe.ciudad}, ${foundMe.distrito}`,
+      encontrado: foundMe.finished,
       fecha: new Date(foundMe.createdAt).toLocaleDateString('es-ES'),
     }));
 

@@ -96,11 +96,10 @@ AdoptionController.getAll = async (req, res) => {
 
 AdoptionController.getAllToAdopt = async (req, res) => {
     try {
-        const { search, adopted } = req.query;
+        const { search } = req.query;
 
         const query = {
             deletedAt: null,
-            adopted: adopted === 'true',
         };
 
         if (search && search.trim()) {

@@ -194,7 +194,11 @@ chatController.getUserChats = async (req, res) => {
         const payload = jwt.verify(token, process.env.JWT_SECRET);
         const userId = payload.id;
 
-        const chats = await Chat.find({ participants: userId, type: "findMe" })
+        const chats = await Chat.find({
+            participants: userId,
+            type: "findMe",
+            ocultedBy: { $ne: userId }
+        })
             .populate("participants")
             .populate("lastMessage");
 
@@ -257,7 +261,12 @@ chatController.getUserAdoptionsReqs = async (req, res) => {
         const payload = jwt.verify(token, process.env.JWT_SECRET);
         const userId = payload.id;
 
-        const chats = await Chat.find({ participants: userId, type: "adoption", createdBy: userId })
+        const chats = await Chat.find({
+            participants: userId,
+            type: "adoption",
+            createdBy: userId,
+            ocultedBy: { $ne: userId }
+        })
             .populate("participants")
             .populate("lastMessage")
             .populate("adoption");
@@ -311,7 +320,12 @@ chatController.getUserAdoptionsSolis = async (req, res) => {
         const userId = payload.id;
         console.log(userId);
 
-        const chats = await Chat.find({ participants: userId, type: "adoption", createdBy: { $ne: userId } })
+        const chats = await Chat.find({
+            participants: userId,
+            type: "adoption",
+            createdBy: { $ne: userId },
+            ocultedBy: { $ne: userId }
+        })
             .populate("participants")
             .populate("lastMessage")
             .populate("adoption");
@@ -518,6 +532,36 @@ chatController.rejectAdoption = async (req, res) => {
 
     } catch (error) {
         console.error("Error rechazando adopción:", error);
+        res.status(500).json({ error: "Internal server error" });
+    }
+};
+
+chatController.ocultChatForUser = async (req, res) => {
+    try {
+        const { chatId } = req.params;
+
+        const token = req.headers.authorization.split(" ")[1];
+        const payload = jwt.verify(token, process.env.JWT_SECRET);
+        const userId = payload.id;
+
+        const chat = await Chat.findById(chatId);
+
+        if (!chat) {
+            return res.status(404).json({ error: "Chat no encontrado" });
+        }
+
+        // ✅ Si ya está oculto, no hacer nada
+        if (chat.ocultedBy.includes(userId)) {
+            return res.status(200).json({ message: "Chat ya estaba oculto" });
+        }
+
+        chat.ocultedBy.push(userId);
+        await chat.save();
+
+        return res.status(200).json({ message: "Chat ocultado correctamente" });
+
+    } catch (error) {
+        console.error("Error ocultando chat:", error);
         res.status(500).json({ error: "Internal server error" });
     }
 };

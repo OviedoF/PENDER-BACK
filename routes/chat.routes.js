@@ -13,6 +13,7 @@ router.post('/found-pet', chatController.foundPet);
 router.post('/request-adoption', chatController.requestAdoption);
 router.post('/send-message', upload.single('image'), chatController.sendMessage);
 router.put('/read-messages/:chatId', chatController.readMessages);
+router.put('/ocult/:chatId', chatController.ocultChatForUser);
 router.put("/adoption/reject/:chatId", chatController.rejectAdoption);
 
 export default router;

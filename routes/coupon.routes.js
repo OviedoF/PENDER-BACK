@@ -1,7 +1,14 @@
 import { Router } from 'express'
 import CouponController from '../controllers/coupon.controller.js'
+import { onlyAdmin } from '../middlewares/roleMiddleware.js'
 
 const router = Router()
+
+// Admin routes (must be before /:id to avoid param conflicts)
+router.get('/admin/all', onlyAdmin, CouponController.adminGetAll)
+router.post('/admin/create', onlyAdmin, CouponController.adminCreate)
+router.get('/admin/:id/metrics', onlyAdmin, CouponController.adminGetMetrics)
+router.delete('/admin/:id', onlyAdmin, CouponController.adminDelete)
 
 // Coupon routes
 router.post('/', CouponController.create) // Create a coupon

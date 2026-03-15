@@ -27,7 +27,9 @@ async function seedAdmin() {
     
 
     // Crea el administrador con contraseña encriptada
-    await new User({ email: adminEmail, password: adminPassword, username: adminName, role: 'admin', phone: "1111", dni: "1111", genre: "Masculino", birthdate: "11/11/1111" }).save();
+    await new User({ email: adminEmail, password: adminPassword, username: adminName, role: 'admin', phone: "1111", dni: "1111", genre: "Masculino", birthdate: "11/11/1111",
+      firstName: "admin", lastName: "admin"
+     }).save();
 
     console.log('Administrador creado exitosamente.');
   } catch (error) {

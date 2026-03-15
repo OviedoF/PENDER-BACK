@@ -2,6 +2,7 @@
 import express from 'express';
 import authController from '../controllers/authController.js';
 import upload from '../config/multer.config.js'; // Configuración de Multer
+import { onlyAdmin } from '../middlewares/roleMiddleware.js';
 
 const router = express.Router();
 
@@ -32,5 +33,29 @@ router.delete('/deleteUser', authController.deleteAccount);
 router.get('/bank-accounts', authController.getBankAccounts);
 router.put('/add-bank', authController.saveBankAccount);
 router.delete('/delete-bank/:bankId', authController.deleteBankAccount);
+
+router.get('/users', onlyAdmin, authController.getUsersAdmin);
+router.get('/users/export', onlyAdmin, authController.exportUsersAdmin);
+
+router.get('/users/:id', onlyAdmin, authController.getUserProfile);
+router.get('/users/:id/activity', onlyAdmin, authController.getUserActivity);
+router.get('/users/:id/reports', onlyAdmin, authController.getUserReports);
+router.put('/users/:id/role', onlyAdmin, authController.updateUserRole);
+router.put('/users/:id/suspend', onlyAdmin, authController.suspendUser);
+router.put('/users/:id/ban', onlyAdmin, authController.banUser);
+router.put('/users/:id/reset-password', onlyAdmin, authController.resetUserPassword);
+router.put('/users/:id/verify', onlyAdmin, authController.verifyUser);
+
+router.put('/enterprises/bulk-disable', onlyAdmin, authController.bulkDisableEnterprises);
+router.get('/enterprises', onlyAdmin, authController.getEnterprisesAdmin);
+router.get('/enterprises/export', onlyAdmin, authController.exportEnterprisesAdmin);
+router.get('/enterprises/pending', onlyAdmin, authController.getPendingEnterprises);
+router.put('/enterprises/:id/approve', onlyAdmin, authController.approveEnterprise);
+router.put('/enterprises/:id/deny', onlyAdmin, authController.denyEnterprise);
+router.put('/enterprises/:id/featured', onlyAdmin, authController.toggleFeaturedEnterprise);
+router.put('/enterprises/:id/priority', onlyAdmin, authController.setEnterprisePriority);
+router.put('/enterprises/:id/active', onlyAdmin, authController.toggleEnterpriseActive);
+router.get('/enterprises/:id/metrics', onlyAdmin, authController.getEnterpriseMetrics);
+router.get('/enterprises/:id/history', onlyAdmin, authController.getEnterpriseHistory);
 
 export default router;

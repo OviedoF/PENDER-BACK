@@ -116,7 +116,7 @@ ServiceController.getAll = async (req, res) => {
         // Traer todos los servicios con filtro
         const allServices = await Service.find(filter)
             .sort({ createdAt: -1, score: -1 })
-            .populate("user", "username firstName lastName image _id");
+            .populate("user", "username firstName lastName image _id featured priority");
 
         // Traer todas las featuredRequest aprobadas
         const approvedRequests = await featuredRequest
@@ -167,9 +167,17 @@ ServiceController.getAll = async (req, res) => {
             ...approved.map((s) => s._id.toString()),
         ]);
 
-        const regular = allServices.filter(
-            (s) => !excludedIds.has(s._id.toString())
-        );
+        const regular = allServices
+            .filter((s) => !excludedIds.has(s._id.toString()))
+            .sort((a, b) => {
+                const aFeatured = a.user?.featured ? 1 : 0;
+                const bFeatured = b.user?.featured ? 1 : 0;
+                if (bFeatured !== aFeatured) return bFeatured - aFeatured;
+                const aPriority = a.user?.priority ?? 50;
+                const bPriority = b.user?.priority ?? 50;
+                if (aPriority !== bPriority) return aPriority - bPriority;
+                return (b.score ?? 0) - (a.score ?? 0);
+            });
 
         return res.status(200).json({ premium, approved, regular });
     } catch (error) {
@@ -653,6 +661,35 @@ ServiceController.getTagsByCategory = async (req, res) => {
         res.json({ category, tags });
     } catch (error) {
         console.error("❌ Error al obtener tags por categoría:", error);
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// Admin: obtener todos los servicios de una empresa (incluyendo deshabilitados)
+ServiceController.adminGetByEnterprise = async (req, res) => {
+    try {
+        const services = await Service.find({ user: req.params.enterpriseId })
+            .select('nombre categoria ciudad departamento imagen imagenes vistas score deletedAt oculto createdAt detalle etiquetas direccion telefono ruc')
+            .sort({ createdAt: -1 })
+            .lean();
+        res.json({ services });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// Admin: habilitar/deshabilitar un servicio (borrado lógico)
+ServiceController.adminToggleService = async (req, res) => {
+    try {
+        const service = await Service.findById(req.params.id);
+        if (!service) return res.status(404).json({ error: 'Servicio no encontrado' });
+        const newDeletedAt = service.deletedAt ? null : new Date();
+        await Service.findByIdAndUpdate(req.params.id, { deletedAt: newDeletedAt });
+        res.json({
+            message: newDeletedAt ? 'Servicio deshabilitado' : 'Servicio habilitado',
+            disabled: !!newDeletedAt,
+        });
+    } catch (error) {
         res.status(500).json({ error: error.message });
     }
 };

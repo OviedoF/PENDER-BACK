@@ -1,5 +1,6 @@
 import User from '../models/User.js';
 import Login from '../models/Login.js';
+import SuscriptionChange from '../models/SuscriptionChange.js';
 import Notification from '../models/Notification.js';
 import Message from "../models/Message.js";
 import Service from '../models/Service.js';
@@ -9,6 +10,11 @@ import fetch from 'node-fetch';
 import { v4 } from 'uuid';
 import createUserNotification from '../utils/createUserNotification.js';
 import Adoption from '../models/Adoption.js';
+import FindMe from '../models/FindMe.js';
+import SystemNotification from '../models/SystemNotification.js';
+import { Cupon } from '../models/Coupon.js';
+import CouponCode from '../models/PremiumCouponCodes.js';
+import FeaturedRequest from '../models/FeaturedRequest.js';
 
 async function verifyGoogleToken(token) {
   const response = await fetch('https://www.googleapis.com/oauth2/v1/userinfo?alt=json', {
@@ -125,6 +131,8 @@ authController.updateUser = async (req, res) => {
       req.body.image = `${process.env.API_URL}/api/uploads/${req.file.filename}`;
     }
 
+    req.body.enterpriseAprobationPending = req.body.enterpriseAprobationPending ? true : false;
+
     await User.findByIdAndUpdate(payload.id, req.body);
     res.status(200).json({ message: "User updated successfully" });
   } catch (error) {
@@ -218,6 +226,30 @@ authController.login = async (req, res) => {
 
     if(user.deletedAt) {
       return res.status(404).json({ message: "Cuenta deshabilitada, vuelve a registrar el email para recuperarla." });
+    }
+
+    if (user.banned) {
+      return res.status(403).json({ message: "Tu cuenta ha sido baneada permanentemente." });
+    }
+
+    if (user.suspendedTo && new Date(user.suspendedTo) > new Date()) {
+      return res.status(403).json({ message: `Tu cuenta está suspendida hasta el ${new Date(user.suspendedTo).toLocaleDateString('es-AR')}.` });
+    }
+
+    if (user.enterpriseAprobationPending === true) {
+      if (!(await user.comparePassword(password))) {
+        return res.status(401).json({ message: "Credenciales inválidas" });
+      }
+      const token = jwt.sign({ id: user._id, role: 'user' }, process.env.JWT_SECRET);
+      return res.status(200).json({ token, role: 'user', suscription: user.suscription, enterpriseAprobationPending: true });
+    }
+
+    if (user.role === 'enterprise' && user.enterpriseActive === false) {
+      if (!(await user.comparePassword(password))) {
+        return res.status(401).json({ message: "Credenciales inválidas" });
+      }
+      const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET);
+      return res.status(200).json({ token, role: 'user', suscription: user.suscription, enterpriseDeactivated: true });
     }
 
     if (!user || !(await user.comparePassword(password))) {
@@ -329,20 +361,24 @@ authController.whoIam = async (req, res) => {
 authController.getUsersByTokens = async (req, res) => {
   try {
     const tokens = req.body.tokens;
-    const users = []
 
-    tokens.forEach((token) => {
-      if (!token) {
-        return res.status(400).json({ error: "Token inválido" });
-      }
-    });
+    if (!Array.isArray(tokens) || tokens.length === 0) {
+      return res.status(400).json({ error: "Tokens inválidos" });
+    }
 
     const usersPromises = tokens.map(async (token) => {
+      if (!token) return null;
+
       const payload = jwt.verify(token, process.env.JWT_SECRET);
-      const user = await User.findById(payload.id, { image: 1, username: 1, suscription: 1 });
-      if (!user) {
-        return res.status(404).json({ error: "Usuario no encontrado" });
-      }
+
+      const user = await User.findById(payload.id, {
+        image: 1,
+        username: 1,
+        suscription: 1,
+      });
+
+      if (!user) return null;
+
       return {
         id: user._id,
         image: user.image,
@@ -352,19 +388,15 @@ authController.getUsersByTokens = async (req, res) => {
       };
     });
 
-    const usersData = await Promise.all(usersPromises);
-    usersData.forEach((user) => {
-      if (user) {
-        users.push(user);
-      }
-    });
+    const users = (await Promise.all(usersPromises)).filter(Boolean);
 
-    res.status(200).json(users);
+    return res.status(200).json(users);
+
   } catch (error) {
     console.log(error);
-    res.status(500).json({ error: error.message });
+    return res.status(500).json({ error: error.message });
   }
-}
+};
 
 authController.getModerators = async (req, res) => {
   try {
@@ -611,10 +643,14 @@ authController.changeUserSuscription = async (req, res) => {
       return res.status(404).json({ error: "Usuario no encontrado" });
     }
 
-    console.log(user.suscription, suscription);
+    const previousSuscription = user.suscription;
     user.suscription = suscription;
-
     await user.save();
+
+    if (previousSuscription !== suscription) {
+      await SuscriptionChange.create({ user: id, from: previousSuscription, to: suscription });
+    }
+
     res.status(200).json({ message: "Suscripción actualizada exitosamente" });
   }
   catch (error) {
@@ -809,5 +845,437 @@ authController.deleteBankAccount = async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 }
+
+authController.getUsersAdmin = async (req, res) => {
+  try {
+    const { search = '', role = '', page = 1, limit = 20 } = req.query;
+    const skip = (Number(page) - 1) * Number(limit);
+
+    const query = { deletedAt: null };
+
+    if (search) {
+      query.$or = [
+        { firstName: { $regex: search, $options: 'i' } },
+        { lastName: { $regex: search, $options: 'i' } },
+        { commercialName: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+      ];
+    }
+
+    if (role === 'normal')        query.role = 'user';
+    else if (role === 'premium')  { query.role = 'user'; query.suscription = { $ne: 'free' }; }
+    else if (role === 'empresa')  query.role = 'enterprise';
+    else if (role === 'moderador') query.role = { $in: ['moderator', 'aprobation'] };
+    else if (role === 'administrador') query.role = 'admin';
+
+    const [users, total] = await Promise.all([
+      User.find(query)
+        .select('firstName lastName commercialName email role suscription image createdAt deletedAt city department banned suspendedTo verified')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(Number(limit))
+        .lean(),
+      User.countDocuments(query),
+    ]);
+
+    const [totalUsers, totalPremium, totalEnterprises] = await Promise.all([
+      User.countDocuments({ deletedAt: null, role: 'user' }),
+      User.countDocuments({ deletedAt: null, role: 'user', suscription: { $ne: 'free' } }),
+      User.countDocuments({ deletedAt: null, role: 'enterprise' }),
+    ]);
+
+    res.json({
+      users,
+      total,
+      page: Number(page),
+      totalPages: Math.ceil(total / Number(limit)),
+      stats: { totalUsers, totalPremium, totalEnterprises },
+    });
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+authController.exportUsersAdmin = async (req, res) => {
+  try {
+    const { search = '', role = '' } = req.query;
+
+    const query = { deletedAt: null };
+
+    if (search) {
+      query.$or = [
+        { firstName: { $regex: search, $options: 'i' } },
+        { lastName: { $regex: search, $options: 'i' } },
+        { commercialName: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+      ];
+    }
+
+    if (role === 'normal')        query.role = 'user';
+    else if (role === 'premium')  { query.role = 'user'; query.suscription = { $ne: 'free' }; }
+    else if (role === 'empresa')  query.role = 'enterprise';
+    else if (role === 'moderador') query.role = { $in: ['moderator', 'aprobation'] };
+    else if (role === 'administrador') query.role = 'admin';
+
+    const users = await User.find(query)
+      .select('firstName lastName commercialName email role suscription createdAt city department')
+      .sort({ createdAt: -1 })
+      .limit(5000)
+      .lean();
+
+    res.json({ users });
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+authController.getUserProfile = async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id)
+      .select('-password -resetPasswordToken -resetPasswordExpires -times')
+      .lean();
+    if (!user) return res.status(404).json({ error: "Usuario no encontrado" });
+    res.json({ user });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+authController.getUserActivity = async (req, res) => {
+  try {
+    const userId = req.params.id;
+    const [personal, global] = await Promise.all([
+      Notification.find({ user: userId }).sort({ createdAt: -1 }).limit(50).lean(),
+      SystemNotification.find({ specificUser: userId }).sort({ createdAt: -1 }).limit(50).lean(),
+    ]);
+    const merged = [
+      ...personal.map(n => ({ ...n, source: 'personal' })),
+      ...global.map(n => ({ ...n, source: 'global' })),
+    ];
+    merged.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    res.json({ activity: merged.slice(0, 50) });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+authController.getUserReports = async (req, res) => {
+  try {
+    const reports = await FindMe.find({ user: req.params.id, deletedAt: null }).sort({ createdAt: -1 }).lean();
+    res.json({ reports });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+authController.updateUserRole = async (req, res) => {
+  try {
+    const { role, suscription } = req.body;
+    const update = {};
+    if (role) update.role = role;
+    if (suscription !== undefined) update.suscription = suscription;
+    await User.findByIdAndUpdate(req.params.id, update);
+    res.json({ message: "Cuenta actualizada correctamente" });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+authController.suspendUser = async (req, res) => {
+  try {
+    const { suspendedTo } = req.body;
+    await User.findByIdAndUpdate(req.params.id, { suspendedTo: new Date(suspendedTo), banned: false });
+    res.json({ message: "Usuario suspendido correctamente" });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+authController.banUser = async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ error: "Usuario no encontrado" });
+    const newBanned = !user.banned;
+    await User.findByIdAndUpdate(req.params.id, { banned: newBanned, suspendedTo: null });
+    res.json({ message: newBanned ? "Usuario baneado permanentemente" : "Usuario desbaneado", banned: newBanned });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+authController.resetUserPassword = async (req, res) => {
+  try {
+    const { password } = req.body;
+    if (!password || password.length < 6) {
+      return res.status(400).json({ error: "La contraseña debe tener al menos 6 caracteres" });
+    }
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ error: "Usuario no encontrado" });
+    user.password = password;
+    await user.save();
+    res.json({ message: "Contraseña actualizada correctamente" });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+authController.verifyUser = async (req, res) => {
+  try {
+    await User.findByIdAndUpdate(req.params.id, { verified: true });
+    res.json({ message: "Usuario verificado correctamente" });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// * EMPRESAS ADMIN
+
+authController.getEnterprisesAdmin = async (req, res) => {
+  try {
+    const { search = '', page = 1, limit = 20 } = req.query;
+    const skip = (Number(page) - 1) * Number(limit);
+
+    const query = { role: 'enterprise', deletedAt: null };
+    if (search) {
+      query.$or = [
+        { commercialName: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+      ];
+    }
+
+    const [enterprises, total, totalFeatured, totalInactive] = await Promise.all([
+      User.find(query)
+        .select('commercialName email city department image createdAt featured priority enterpriseActive ruc')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(Number(limit))
+        .lean(),
+      User.countDocuments(query),
+      User.countDocuments({ role: 'enterprise', deletedAt: null, featured: true }),
+      User.countDocuments({ role: 'enterprise', deletedAt: null, enterpriseActive: false }),
+    ]);
+
+    res.json({
+      enterprises,
+      total,
+      page: Number(page),
+      totalPages: Math.ceil(total / Number(limit)),
+      stats: { total, totalFeatured, totalInactive },
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+authController.exportEnterprisesAdmin = async (req, res) => {
+  try {
+    const { search = '' } = req.query;
+    const query = { role: 'enterprise', deletedAt: null };
+    if (search) {
+      query.$or = [
+        { commercialName: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+      ];
+    }
+    const enterprises = await User.find(query)
+      .select('commercialName email city department createdAt featured priority enterpriseActive ruc')
+      .sort({ createdAt: -1 })
+      .limit(5000)
+      .lean();
+    res.json({ enterprises });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+authController.toggleFeaturedEnterprise = async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ error: 'Empresa no encontrada' });
+    const newFeatured = !user.featured;
+    await User.findByIdAndUpdate(req.params.id, { featured: newFeatured });
+    res.json({ message: newFeatured ? 'Empresa destacada' : 'Empresa quitada de destacados', featured: newFeatured });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+authController.setEnterprisePriority = async (req, res) => {
+  try {
+    const { priority } = req.body;
+    const p = Number(priority);
+    if (isNaN(p) || p < 1 || p > 100) return res.status(400).json({ error: 'Prioridad debe ser entre 1 y 100' });
+    await User.findByIdAndUpdate(req.params.id, { priority: p });
+    res.json({ message: 'Prioridad actualizada', priority: p });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+authController.toggleEnterpriseActive = async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ error: 'Empresa no encontrada' });
+    const newActive = !user.enterpriseActive;
+    await User.findByIdAndUpdate(req.params.id, { enterpriseActive: newActive });
+    res.json({ message: newActive ? 'Empresa activada' : 'Empresa desactivada', enterpriseActive: newActive });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+authController.bulkDisableEnterprises = async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'Se requiere al menos un ID' });
+    }
+    const now = new Date();
+    await Promise.all([
+      User.updateMany({ _id: { $in: ids } }, { deletedAt: now }),
+      Service.updateMany({ user: { $in: ids } }, { deletedAt: now }),
+    ]);
+    res.json({ message: `${ids.length} empresa(s) eliminada(s) correctamente`, count: ids.length });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+authController.getPendingEnterprises = async (req, res) => {
+  try {
+    const pending = await User.find({ enterpriseAprobationPending: true, deletedAt: null })
+      .select('firstName lastName commercialName email ruc socialReason city district department principalActivity secondaryActivity description potentialSegment image images createdAt')
+      .sort({ createdAt: -1 })
+      .lean();
+    res.json({ pending, total: pending.length });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+authController.approveEnterprise = async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
+    await User.findByIdAndUpdate(req.params.id, {
+      role: 'enterprise',
+      enterpriseAprobationPending: false,
+    });
+    res.json({ message: 'Empresa aprobada correctamente' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+authController.denyEnterprise = async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
+    await User.findByIdAndUpdate(req.params.id, {
+      role: 'user',
+      enterpriseAprobationPending: false,
+    });
+    res.json({ message: 'Solicitud de empresa denegada' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+authController.getEnterpriseHistory = async (req, res) => {
+  try {
+    const userId = req.params.id;
+    const events = [];
+
+    // 1. Servicios
+    const services = await Service.find({ user: userId })
+      .select('nombre createdAt updatedAt deletedAt')
+      .lean();
+
+    for (const svc of services) {
+      events.push({ type: 'service_created', date: svc.createdAt, label: `Servicio creado`, meta: svc.nombre });
+      if (svc.updatedAt && new Date(svc.updatedAt) - new Date(svc.createdAt) > 60000) {
+        events.push({ type: 'service_edited', date: svc.updatedAt, label: `Servicio editado`, meta: svc.nombre });
+      }
+      if (svc.deletedAt) {
+        events.push({ type: 'service_disabled', date: svc.deletedAt, label: `Servicio eliminado`, meta: svc.nombre });
+      }
+    }
+
+    // 2. Cupones
+    const serviceIds = services.map(s => s._id);
+    const coupons = await Cupon.find({ service: { $in: serviceIds } })
+      .populate('service', 'nombre')
+      .select('nombre tipoDescuento valorDescuento premium createdAt deletedAt')
+      .lean();
+
+    for (const cup of coupons) {
+      const svcName = cup.service?.nombre || '';
+      const desc = cup.nombre + (svcName ? ` — ${svcName}` : '');
+      events.push({ type: 'coupon_created', date: cup.createdAt, label: `Cupón creado${cup.premium ? ' (Premium)' : ''}`, meta: desc });
+      if (cup.deletedAt) {
+        events.push({ type: 'coupon_deleted', date: cup.deletedAt, label: `Cupón eliminado`, meta: desc });
+      }
+    }
+
+    // 3. Cupones premium canjeados
+    const couponIds = coupons.map(c => c._id);
+    if (couponIds.length > 0) {
+      const usedCodes = await CouponCode.find({ coupon: { $in: couponIds }, status: 'approved' })
+        .populate({ path: 'coupon', select: 'nombre service', populate: { path: 'service', select: 'nombre' } })
+        .select('updatedAt createdAt')
+        .lean();
+      for (const code of usedCodes) {
+        const couponName = code.coupon?.nombre || '';
+        const svcName = code.coupon?.service?.nombre || '';
+        const meta = [couponName, svcName].filter(Boolean).join(' — ');
+        events.push({ type: 'coupon_used', date: code.updatedAt || code.createdAt, label: 'Cupón premium canjeado', meta });
+      }
+    }
+
+    // 4. Solicitudes de destacado
+    const featuredReqs = await FeaturedRequest.find({ user: userId })
+      .populate('service', 'nombre')
+      .select('status createdAt updatedAt')
+      .lean();
+
+    for (const req of featuredReqs) {
+      const svcName = req.service?.nombre || '';
+      events.push({ type: 'featured_requested', date: req.createdAt, label: 'Solicitud de destacado enviada', meta: svcName });
+      if (req.status === 'approved') {
+        events.push({ type: 'featured_approved', date: req.updatedAt, label: 'Solicitud de destacado aprobada', meta: svcName });
+      } else if (req.status === 'rejected') {
+        events.push({ type: 'featured_rejected', date: req.updatedAt, label: 'Solicitud de destacado rechazada', meta: svcName });
+      }
+    }
+
+    events.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    res.json({ history: events.slice(0, 150) });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+authController.getEnterpriseMetrics = async (req, res) => {
+  try {
+    const services = await Service.find({ user: req.params.id, deletedAt: null }).lean();
+    const metrics = await Promise.all(services.map(async (service) => {
+      const coupons = await Cupon.find({ service: service._id }).lean();
+      const couponIds = coupons.map(c => c._id);
+      const conversiones = await CouponCode.countDocuments({ coupon: { $in: couponIds }, status: 'approved' });
+      return {
+        serviceName: service.nombre,
+        vistas: service.vistas ?? 0,
+        clicks: service.score ?? 0,
+        conversiones,
+        cupones: coupons.length,
+      };
+    }));
+    res.json({ metrics });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
 
 export default authController;

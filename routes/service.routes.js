@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import ServiceController from '../controllers/service.controller.js';
 import upload from '../config/multer.config.js'; // Multer config
+import { onlyAdmin } from '../middlewares/roleMiddleware.js';
 
 const router = Router();
 
@@ -24,5 +25,9 @@ router.put('/:id', upload.fields([
     { name: 'imagenes', maxCount: 5 }
 ]), ServiceController.update);
 router.delete('/:id', ServiceController.delete);
+
+// Admin routes
+router.get('/admin/enterprise/:enterpriseId', onlyAdmin, ServiceController.adminGetByEnterprise);
+router.put('/admin/:id/toggle', onlyAdmin, ServiceController.adminToggleService);
 
 export default router;

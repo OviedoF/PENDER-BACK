@@ -42,6 +42,22 @@ const userSchema = new mongoose.Schema({
   loginNotifications: { type: Boolean, default: false },
 
   deletedAt: { type: Date, default: null },
+
+  // SESSION TRACKING
+  times: [{
+    date:    { type: Date,   default: Date.now },
+    seconds: { type: Number, required: true },
+  }],
+
+  suspendedTo: { type: Date, default: null },
+  banned: { type: Boolean, default: false },
+  verified: { type: Boolean, default: false },
+
+  // ENTERPRISE ADMIN
+  featured: { type: Boolean, default: false },
+  priority: { type: Number, default: 50 },
+  enterpriseActive: { type: Boolean, default: true },
+  enterpriseAprobationPending: { type: Boolean, default: false },
 }, {
   timestamps: true,
 })

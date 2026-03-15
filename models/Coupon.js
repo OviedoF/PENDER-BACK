@@ -12,9 +12,14 @@ const CuponSchema = new Schema({
   horaPublicacion: { type: Date, required: false },
   oculto: { type: Boolean, default: false },
   premium: { type: Boolean, default: false },
-  service: { type: mongoose.Schema.Types.ObjectId, ref: 'Service', required: true },
+  service: { type: mongoose.Schema.Types.ObjectId, ref: 'Service', default: null },
   vistas: { type: Number, default: 0 },
   deletedAt: { type: Date, default: null },
+  // Admin fields
+  global: { type: Boolean, default: false },
+  zona: { type: String, default: null },
+  limiteUsos: { type: Number, default: null },
+  usosActuales: { type: Number, default: 0 },
 }, {
   timestamps: true,
 })

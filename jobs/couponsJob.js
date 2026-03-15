@@ -39,10 +39,35 @@ const couponsJob = (agenda) => {
             cuponToUpdate.horaPublicacion = null;
             await cuponToUpdate.save();
             console.log(`Cupon ${cupon.id} actualizado a visible`);
+            if (cuponToUpdate.service?.user) {
+              createUserNotification(
+                cuponToUpdate.service.user,
+                `Tu cupón "${cuponToUpdate.nombre}" ya está activo y visible para los usuarios.`,
+                'Cupon Activado'
+              );
+            }
+          }
+        }
+      }
+
+      // Hide expired coupons (fechaExpiracion passed)
+      const expiredCoupons = await Cupon.find({
+        oculto: false,
+        deletedAt: null,
+        fechaExpiracion: { $lte: now, $ne: null },
+      });
+      console.log(`Cupones expirados encontrados: ${expiredCoupons.length}`);
+      for (const cupon of expiredCoupons) {
+        cupon.oculto = true;
+        await cupon.save();
+        console.log(`Cupon ${cupon._id} ocultado por expiración`);
+        if (cupon.service) {
+          const populated = await Cupon.findById(cupon._id).populate('service');
+          if (populated?.service?.user) {
             createUserNotification(
-              cuponToUpdate.service.user,
-              `Tu cupón "${cuponToUpdate.nombre}" ya está activo y visible para los usuarios.`,
-              'Cupon Activado'
+              populated.service.user,
+              `Tu cupón "${cupon.nombre}" ha expirado y ya no es visible para los usuarios.`,
+              'Cupon Expirado'
             );
           }
         }

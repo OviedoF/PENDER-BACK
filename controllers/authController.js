@@ -1037,17 +1037,19 @@ authController.getEnterprisesAdmin = async (req, res) => {
     const { search = '', page = 1, limit = 20 } = req.query;
     const skip = (Number(page) - 1) * Number(limit);
 
-    const query = { role: 'enterprise', deletedAt: null };
-    if (search) {
-      query.$or = [
-        { commercialName: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } },
-      ];
-    }
+    const query = {
+      $and: [
+        { $or: [{ role: 'enterprise' }, { enterpriseAprobationPending: true }] },
+        { deletedAt: null },
+        ...(search
+          ? [{ $or: [{ commercialName: { $regex: search, $options: 'i' } }, { email: { $regex: search, $options: 'i' } }] }]
+          : []),
+      ],
+    };
 
-    const [enterprises, total, totalFeatured, totalInactive] = await Promise.all([
+    const [enterprises, total, totalFeatured, totalInactive, totalPending] = await Promise.all([
       User.find(query)
-        .select('commercialName email city department image createdAt featured priority enterpriseActive ruc')
+        .select('commercialName email city department image createdAt featured priority enterpriseActive ruc enterpriseAprobationPending')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(Number(limit))
@@ -1055,6 +1057,7 @@ authController.getEnterprisesAdmin = async (req, res) => {
       User.countDocuments(query),
       User.countDocuments({ role: 'enterprise', deletedAt: null, featured: true }),
       User.countDocuments({ role: 'enterprise', deletedAt: null, enterpriseActive: false }),
+      User.countDocuments({ enterpriseAprobationPending: true, deletedAt: null }),
     ]);
 
     res.json({
@@ -1062,7 +1065,7 @@ authController.getEnterprisesAdmin = async (req, res) => {
       total,
       page: Number(page),
       totalPages: Math.ceil(total / Number(limit)),
-      stats: { total, totalFeatured, totalInactive },
+      stats: { total, totalFeatured, totalInactive, totalPending },
     });
   } catch (error) {
     res.status(500).json({ error: error.message });

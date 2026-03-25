@@ -381,4 +381,43 @@ CouponCodeController.approveCouponCode = async (req, res) => {
     }
 };
 
+CouponCodeController.adminGetAll = async (req, res) => {
+    try {
+        const { status = '', page = 1, limit = 20 } = req.query;
+        const skip = (Number(page) - 1) * Number(limit);
+
+        const query = { deletedAt: null, status: { $ne: 'created' } };
+        if (status) query.status = status;
+
+        const [codes, total] = await Promise.all([
+            CouponCode.find(query)
+                .populate({
+                    path: 'coupon',
+                    select: 'nombre codigo tipoDescuento valorDescuento service',
+                    populate: {
+                        path: 'service',
+                        select: 'nombre',
+                        populate: { path: 'user', select: 'commercialName email' },
+                    },
+                })
+                .populate('user', 'firstName lastName commercialName email image')
+                .sort({ createdAt: -1 })
+                .skip(skip)
+                .limit(Number(limit))
+                .lean(),
+            CouponCode.countDocuments(query),
+        ]);
+
+        // pending primero
+        const ordered = [
+            ...codes.filter(c => c.status === 'pending'),
+            ...codes.filter(c => c.status !== 'pending'),
+        ];
+
+        res.json({ codes: ordered, total, page: Number(page), totalPages: Math.ceil(total / Number(limit)) });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
 export default CouponCodeController

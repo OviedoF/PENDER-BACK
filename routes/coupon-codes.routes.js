@@ -1,8 +1,12 @@
 import { Router } from 'express'
 import CouponCodeController from '../controllers/couponCode.controller.js'
 import upload from '../config/multer.config.js';
+import { onlyAdmin } from '../middlewares/roleMiddleware.js';
 
 const router = Router()
+
+// Admin routes
+router.get('/admin', onlyAdmin, CouponCodeController.adminGetAll)
 
 // CouponCode routes
 router.post('/', CouponCodeController.create) // Crear un código de cupón

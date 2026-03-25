@@ -9,6 +9,7 @@ router.get('/kpis',         onlyAdmin, statsController.getKPIs);
 router.get('/growth',       onlyAdmin, statsController.getGrowth);
 router.get('/charts',       onlyAdmin, statsController.getCharts);
 router.get('/zone-reports', onlyAdmin, statsController.getZoneReports);
+router.get('/conversions',  onlyAdmin, statsController.getConversions);
 router.get('/recent',       onlyAdmin, statsController.getRecentActivity);
 router.post('/session',     protect,   statsController.recordSession);
 

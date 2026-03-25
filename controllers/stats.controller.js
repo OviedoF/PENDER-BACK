@@ -417,6 +417,33 @@ statsController.getRecentActivity = async (req, res) => {
     }
 };
 
+statsController.getConversions = async (req, res) => {
+    try {
+        const { page = 1, limit = 20, tipo = 'todos' } = req.query;
+        const skip = (Number(page) - 1) * Number(limit);
+
+        const userFilter = {};
+        if (tipo === 'usuarios') userFilter.role = 'user';
+        else if (tipo === 'empresas') userFilter.$or = [{ ruc: { $exists: true, $ne: null, $gt: '' } }, { commercialName: { $exists: true, $ne: null, $gt: '' } }];
+
+        const [all, total] = await Promise.all([
+            SuscriptionChange.find()
+                .sort({ createdAt: -1 })
+                .skip(skip)
+                .limit(Number(limit))
+                .populate({ path: 'user', select: 'firstName lastName commercialName email role ruc suscription', match: Object.keys(userFilter).length ? userFilter : undefined })
+                .lean(),
+            SuscriptionChange.countDocuments(),
+        ]);
+
+        const conversiones = all.filter(c => c.user !== null);
+
+        res.json({ conversiones, total, page: Number(page), totalPages: Math.ceil(total / Number(limit)) });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
 export default statsController;
 
 // ─── (eliminado: seed solo-frontend) ─────────────────────────────────────────

@@ -864,7 +864,7 @@ authController.getUsersAdmin = async (req, res) => {
 
     if (role === 'normal')        query.role = 'user';
     else if (role === 'premium')  { query.role = 'user'; query.suscription = { $ne: 'free' }; }
-    else if (role === 'empresa')  query.role = 'enterprise';
+    else if (role === 'empresa')  query.$or = [{ ruc: { $exists: true, $ne: null, $gt: '' } }, { commercialName: { $exists: true, $ne: null, $gt: '' } }];
     else if (role === 'moderador') query.role = { $in: ['moderator', 'aprobation'] };
     else if (role === 'administrador') query.role = 'admin';
 
@@ -881,7 +881,7 @@ authController.getUsersAdmin = async (req, res) => {
     const [totalUsers, totalPremium, totalEnterprises] = await Promise.all([
       User.countDocuments({ deletedAt: null, role: 'user' }),
       User.countDocuments({ deletedAt: null, role: 'user', suscription: { $ne: 'free' } }),
-      User.countDocuments({ deletedAt: null, role: 'enterprise' }),
+      User.countDocuments({ deletedAt: null, $or: [{ ruc: { $exists: true, $ne: null, $gt: '' } }, { commercialName: { $exists: true, $ne: null, $gt: '' } }] }),
     ]);
 
     res.json({
@@ -914,7 +914,7 @@ authController.exportUsersAdmin = async (req, res) => {
 
     if (role === 'normal')        query.role = 'user';
     else if (role === 'premium')  { query.role = 'user'; query.suscription = { $ne: 'free' }; }
-    else if (role === 'empresa')  query.role = 'enterprise';
+    else if (role === 'empresa')  query.$or = [{ ruc: { $exists: true, $ne: null, $gt: '' } }, { commercialName: { $exists: true, $ne: null, $gt: '' } }];
     else if (role === 'moderador') query.role = { $in: ['moderator', 'aprobation'] };
     else if (role === 'administrador') query.role = 'admin';
 
@@ -927,6 +927,26 @@ authController.exportUsersAdmin = async (req, res) => {
     res.json({ users });
   } catch (error) {
     console.log(error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+authController.adminUpdateUser = async (req, res) => {
+  try {
+    const allowed = [
+      'firstName', 'lastName', 'username', 'email', 'phone', 'birthdate',
+      'city', 'district', 'department',
+      'commercialName', 'ruc', 'socialReason', 'principalActivity',
+      'secondaryActivity', 'description', 'potentialSegment', 'balance',
+    ];
+    const update = {};
+    for (const key of allowed) {
+      if (req.body[key] !== undefined) update[key] = req.body[key] === '' ? null : req.body[key];
+    }
+    if (Object.keys(update).length === 0) return res.status(400).json({ error: 'No hay campos para actualizar' });
+    await User.findByIdAndUpdate(req.params.id, update);
+    res.json({ message: 'Usuario actualizado correctamente' });
+  } catch (error) {
     res.status(500).json({ error: error.message });
   }
 };
@@ -976,7 +996,12 @@ authController.updateUserRole = async (req, res) => {
     const update = {};
     if (role) update.role = role;
     if (suscription !== undefined) update.suscription = suscription;
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ error: "Usuario no encontrado" });
     await User.findByIdAndUpdate(req.params.id, update);
+    if (suscription !== undefined && suscription !== user.suscription) {
+      await SuscriptionChange.create({ user: req.params.id, from: user.suscription ?? 'free', to: suscription });
+    }
     res.json({ message: "Cuenta actualizada correctamente" });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -1039,7 +1064,7 @@ authController.getEnterprisesAdmin = async (req, res) => {
 
     const query = {
       $and: [
-        { $or: [{ role: 'enterprise' }, { enterpriseAprobationPending: true }] },
+        { $or: [{ ruc: { $exists: true, $ne: null, $gt: '' } }, { commercialName: { $exists: true, $ne: null, $gt: '' } }] },
         { deletedAt: null },
         ...(search
           ? [{ $or: [{ commercialName: { $regex: search, $options: 'i' } }, { email: { $regex: search, $options: 'i' } }] }]
@@ -1055,9 +1080,9 @@ authController.getEnterprisesAdmin = async (req, res) => {
         .limit(Number(limit))
         .lean(),
       User.countDocuments(query),
-      User.countDocuments({ role: 'enterprise', deletedAt: null, featured: true }),
-      User.countDocuments({ role: 'enterprise', deletedAt: null, enterpriseActive: false }),
-      User.countDocuments({ enterpriseAprobationPending: true, deletedAt: null }),
+      User.countDocuments({ $or: [{ ruc: { $exists: true, $ne: null, $gt: '' } }, { commercialName: { $exists: true, $ne: null, $gt: '' } }], deletedAt: null, featured: true }),
+      User.countDocuments({ $or: [{ ruc: { $exists: true, $ne: null, $gt: '' } }, { commercialName: { $exists: true, $ne: null, $gt: '' } }], deletedAt: null, enterpriseActive: false }),
+      User.countDocuments({ $or: [{ ruc: { $exists: true, $ne: null, $gt: '' } }, { commercialName: { $exists: true, $ne: null, $gt: '' } }], enterpriseAprobationPending: true, deletedAt: null }),
     ]);
 
     res.json({
@@ -1075,7 +1100,7 @@ authController.getEnterprisesAdmin = async (req, res) => {
 authController.exportEnterprisesAdmin = async (req, res) => {
   try {
     const { search = '' } = req.query;
-    const query = { role: 'enterprise', deletedAt: null };
+    const query = { $or: [{ ruc: { $exists: true, $ne: null, $gt: '' } }, { commercialName: { $exists: true, $ne: null, $gt: '' } }], deletedAt: null };
     if (search) {
       query.$or = [
         { commercialName: { $regex: search, $options: 'i' } },

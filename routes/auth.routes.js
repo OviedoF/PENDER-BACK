@@ -38,6 +38,7 @@ router.get('/users', onlyAdmin, authController.getUsersAdmin);
 router.get('/users/export', onlyAdmin, authController.exportUsersAdmin);
 
 router.get('/users/:id', onlyAdmin, authController.getUserProfile);
+router.put('/users/:id', onlyAdmin, authController.adminUpdateUser);
 router.get('/users/:id/activity', onlyAdmin, authController.getUserActivity);
 router.get('/users/:id/reports', onlyAdmin, authController.getUserReports);
 router.put('/users/:id/role', onlyAdmin, authController.updateUserRole);

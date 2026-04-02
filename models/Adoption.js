@@ -17,6 +17,10 @@ const AdoptionSchema = new mongoose.Schema({
   imagenes: [{ type: String, required: false }], // URLs de las imagenes subidas
   deletedAt: {type: Date, required: false, default: null},
   adopted: { type: Boolean, required: true, default: false },
+  status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'approved' },
+  fraudFlag: { type: Boolean, default: false },
+  fraudReason: { type: String, default: null },
+  reportsCount: { type: Number, default: 0 },
 }, { timestamps: true });
 
 const Adoption = mongoose.model('Adoption', AdoptionSchema);

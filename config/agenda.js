@@ -1,5 +1,6 @@
 import Agenda from 'agenda';
 import couponsJob from '../jobs/couponsJob.js';
+import subscriptionJob from '../jobs/subscriptionJob.js';
 
 const agenda = new Agenda({
   db: {
@@ -9,6 +10,7 @@ const agenda = new Agenda({
 });
 
 couponsJob(agenda);
+subscriptionJob(agenda);
 
 agenda.on('ready', async () => {
   console.log('✅ Agenda READY');
@@ -16,8 +18,10 @@ agenda.on('ready', async () => {
   await agenda.start();
 
   await agenda.every('1 minute', 'coupons_test');
+  await agenda.every('1 hour', 'expire_trials');
 
   console.log('🕒 Job coupons_test programado');
+  console.log('🕒 Job expire_trials programado');
 });
 
 agenda.on('error', (err) => {

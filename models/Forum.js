@@ -12,7 +12,9 @@ const ForumSchema = new mongoose.Schema({
     // distrito: { type: String, required: true },
     // departamento: { type: String, required: true },
     // ciudad: { type: String, required: true },
-    deletedAt: { type: Date, default: null }
+    deletedAt: { type: Date, default: null },
+    closed: { type: Boolean, default: false },
+    pinned: { type: Boolean, default: false },
 }, { timestamps: true });
 
 export default mongoose.model('Forum', ForumSchema);

@@ -1,9 +1,18 @@
 import FindMe from '../models/FindMe.js';
 import User from '../models/User.js';
+import ZoneConfig from '../models/ZoneConfig.js';
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
 import createSystemNotification from '../utils/createSystemNotification.js';
 dotenv.config();
+
+const verifyAdmin = async (req) => {
+    const token = req.headers.authorization.split(' ')[1];
+    const payload = jwt.verify(token, process.env.JWT_SECRET);
+    const user = await User.findOne({ _id: payload.id });
+    if (!user || user.role !== 'admin') throw new Error('No tienes permisos de administrador');
+    return user;
+};
 
 const FoundMeController = {};
 
@@ -255,6 +264,209 @@ FoundMeController.delete = async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
+};
+
+// ─── ADMIN METHODS ────────────────────────────────────────────────────────────
+
+FoundMeController.adminGetAll = async (req, res) => {
+    try {
+        await verifyAdmin(req);
+        const { page = 1, search, tipo, estado, zona, fechaDesde, fechaHasta } = req.query;
+        const limit = 20;
+        const skip = (Number(page) - 1) * limit;
+
+        const filter = { deletedAt: null };
+
+        if (tipo) filter.tipo = tipo;
+        if (zona) filter.departamento = new RegExp(zona, 'i');
+        if (estado === 'activa') filter.finished = false;
+        if (estado === 'resuelta') filter.finished = true;
+
+        if (fechaDesde || fechaHasta) {
+            filter.createdAt = {};
+            if (fechaDesde) filter.createdAt.$gte = new Date(fechaDesde);
+            if (fechaHasta) {
+                const end = new Date(fechaHasta);
+                end.setHours(23, 59, 59, 999);
+                filter.createdAt.$lte = end;
+            }
+        }
+
+        if (search && search.trim()) {
+            const regex = new RegExp(search, 'i');
+            filter.$or = [
+                { nombre: regex },
+                { raza: regex },
+                { especie: regex },
+                { ciudad: regex },
+                { distrito: regex },
+                { departamento: regex },
+                { nombreResponsable: regex },
+                { telefono: regex },
+                { comentarios: regex },
+            ];
+        }
+
+        const [reportes, total] = await Promise.all([
+            FindMe.find(filter)
+                .populate('user', 'firstName lastName email image role')
+                .sort({ createdAt: -1 })
+                .skip(skip)
+                .limit(limit),
+            FindMe.countDocuments(filter),
+        ]);
+
+        res.status(200).json({
+            reportes,
+            total,
+            page: Number(page),
+            totalPages: Math.ceil(total / limit),
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+FoundMeController.adminGetById = async (req, res) => {
+    try {
+        await verifyAdmin(req);
+        const reporte = await FindMe.findOne({ _id: req.params.id })
+            .populate('user', 'firstName lastName email image role');
+        if (!reporte) return res.status(404).json({ message: 'No encontrado' });
+        res.status(200).json(reporte);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+FoundMeController.adminUpdateStatus = async (req, res) => {
+    try {
+        await verifyAdmin(req);
+        const { encontrado, finished } = req.body;
+        const reporte = await FindMe.findOneAndUpdate(
+            { _id: req.params.id, deletedAt: null },
+            { encontrado, finished },
+            { new: true }
+        );
+        if (!reporte) return res.status(404).json({ message: 'No encontrado' });
+
+        if (finished) {
+            await createSystemNotification({
+                title: `${reporte.nombre} fue recuperado/a!`,
+                text: `Nos alegra comunicar que la mascota ha vuelto con su dueno.`,
+                specificUser: reporte.user,
+            });
+        }
+
+        res.status(200).json(reporte);
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+};
+
+FoundMeController.adminDelete = async (req, res) => {
+    try {
+        await verifyAdmin(req);
+        const reporte = await FindMe.findOneAndUpdate(
+            { _id: req.params.id, deletedAt: null },
+            { deletedAt: new Date() },
+            { new: true }
+        );
+        if (!reporte) return res.status(404).json({ message: 'No encontrado' });
+        res.status(200).json({ message: 'Eliminado correctamente' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+FoundMeController.adminMerge = async (req, res) => {
+    try {
+        await verifyAdmin(req);
+        const { survivorId, duplicateId } = req.body;
+        if (!survivorId || !duplicateId) return res.status(400).json({ message: 'Faltan IDs' });
+
+        const duplicate = await FindMe.findOneAndUpdate(
+            { _id: duplicateId, deletedAt: null },
+            { deletedAt: new Date() },
+            { new: true }
+        );
+        if (!duplicate) return res.status(404).json({ message: 'Reporte duplicado no encontrado' });
+
+        const survivor = await FindMe.findOne({ _id: survivorId, deletedAt: null });
+        if (!survivor) return res.status(404).json({ message: 'Reporte principal no encontrado' });
+
+        res.status(200).json({ message: 'Reportes fusionados correctamente', survivor });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+FoundMeController.adminGetMatches = async (req, res) => {
+    try {
+        await verifyAdmin(req);
+        const reporte = await FindMe.findOne({ _id: req.params.id, deletedAt: null });
+        if (!reporte) return res.status(404).json({ message: 'No encontrado' });
+
+        const opposingTipo = reporte.tipo === 'reporte' ? 'busqueda' : 'reporte';
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+        const matches = await FindMe.find({
+            _id: { $ne: reporte._id },
+            deletedAt: null,
+            finished: false,
+            tipo: opposingTipo,
+            especie: new RegExp(reporte.especie, 'i'),
+            departamento: new RegExp(reporte.departamento, 'i'),
+            createdAt: { $gte: thirtyDaysAgo },
+        })
+            .populate('user', 'firstName lastName email')
+            .limit(10);
+
+        res.status(200).json({ matches, reporte });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+FoundMeController.adminSendNotification = async (req, res) => {
+    try {
+        await verifyAdmin(req);
+        const { title, text, specificUser } = req.body;
+        if (!title || !text) return res.status(400).json({ message: 'Titulo y texto requeridos' });
+
+        await createSystemNotification({ title, text, specificUser: specificUser || null });
+        res.status(200).json({ message: 'Notificacion enviada correctamente' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+FoundMeController.adminGetZoneConfigs = async (req, res) => {
+    try {
+        await verifyAdmin(req);
+        const configs = await ZoneConfig.find().sort({ zona: 1 });
+        res.status(200).json(configs);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+FoundMeController.adminUpsertZoneConfig = async (req, res) => {
+    try {
+        await verifyAdmin(req);
+        const { zona, radio, activo } = req.body;
+        if (!zona || radio === undefined) return res.status(400).json({ message: 'Zona y radio requeridos' });
+
+        const config = await ZoneConfig.findOneAndUpdate(
+            { zona },
+            { zona, radio, activo: activo ?? true },
+            { upsert: true, new: true }
+        );
+        res.status(200).json(config);
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
 };
 
 export default FoundMeController;

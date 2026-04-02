@@ -15,7 +15,10 @@ const CommunitySchema = new mongoose.Schema({
     distrito: { type: String, required: false },
     departamento: { type: String, required: false },
     ciudad: { type: String, required: false },
-    deletedAt: { type: Date, default: null }
+    deletedAt: { type: Date, default: null },
+    oficial: { type: Boolean, default: false },
+    featured: { type: Boolean, default: false },
+    bannedMembers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
 }, { timestamps: true });
 
 export default mongoose.model('Community', CommunitySchema);

@@ -29,4 +29,20 @@ router.put(
 );
 router.delete('/:id', AdoptionController.delete);
 
+// ─── PUBLIC: Report abuse ─────────────────────────────────────────────────────
+router.post('/:id/report', AdoptionController.reportAbuse);
+
+// ─── ADMIN ROUTES ─────────────────────────────────────────────────────────────
+router.get('/admin/all',            AdoptionController.adminGetAll);
+router.get('/admin/reports',        AdoptionController.adminGetReports);
+router.get('/admin/detect-fraud',   AdoptionController.adminDetectFraud);
+router.get('/admin/user/:userId',   AdoptionController.adminGetUserHistory);
+router.get('/admin/:id',            AdoptionController.adminGetById);
+router.put('/admin/:id/approve',    AdoptionController.adminApprove);
+router.put('/admin/:id/reject',     AdoptionController.adminReject);
+router.put('/admin/:id/adopted',    AdoptionController.adminMarkAdopted);
+router.put('/admin/:id/fraud',      AdoptionController.adminFlagFraud);
+router.delete('/admin/:id',         AdoptionController.adminDelete);
+router.put('/admin/reports/:id/resolve', AdoptionController.adminResolveReport);
+
 export default router;

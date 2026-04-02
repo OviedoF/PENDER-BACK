@@ -492,4 +492,125 @@ ForumController.getRoleMembers = async (req, res) => {
     }
 }
 
+// ─── ADMIN ────────────────────────────────────────────────────────────────────
+
+const verifyAdmin = async (req) => {
+    const token = req.headers.authorization.split(' ')[1];
+    const payload = jwt.verify(token, process.env.JWT_SECRET);
+    const user = await User.findOne({ _id: payload.id });
+    if (!user || user.role !== 'admin') throw new Error('No tienes permisos de administrador');
+    return user;
+};
+
+ForumController.adminGetAll = async (req, res) => {
+    try {
+        await verifyAdmin(req);
+        const { page = 1, search, closed, pinned } = req.query;
+        const limit = 20;
+        const skip = (Number(page) - 1) * limit;
+        const filter = { deletedAt: null };
+        if (closed !== undefined && closed !== '') filter.closed = closed === 'true';
+        if (pinned !== undefined && pinned !== '') filter.pinned = pinned === 'true';
+        if (search && search.trim()) {
+            const regex = new RegExp(search, 'i');
+            filter.$or = [{ titulo: regex }, { descripcion: regex }, { categorias: regex }, { etiquetas: regex }];
+        }
+        const [forums, total] = await Promise.all([
+            Forum.find(filter)
+                .populate('user', 'firstName lastName email image')
+                .sort({ pinned: -1, createdAt: -1 })
+                .skip(skip)
+                .limit(limit),
+            Forum.countDocuments(filter),
+        ]);
+        // attach comment counts
+        const forumIds = forums.map(f => f._id);
+        const commentCounts = await Comment.aggregate([
+            { $match: { forum: { $in: forumIds }, deletedAt: null } },
+            { $group: { _id: '$forum', count: { $sum: 1 } } },
+        ]);
+        const countMap = Object.fromEntries(commentCounts.map(c => [c._id.toString(), c.count]));
+        const result = forums.map(f => ({ ...f.toObject(), commentCount: countMap[f._id.toString()] ?? 0 }));
+        res.status(200).json({ forums: result, total, page: Number(page), totalPages: Math.ceil(total / limit) });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+ForumController.adminToggleClosed = async (req, res) => {
+    try {
+        await verifyAdmin(req);
+        const forum = await Forum.findOne({ _id: req.params.id, deletedAt: null });
+        if (!forum) return res.status(404).json({ message: 'No encontrado' });
+        forum.closed = !forum.closed;
+        await forum.save();
+        res.status(200).json(forum);
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+};
+
+ForumController.adminTogglePinned = async (req, res) => {
+    try {
+        await verifyAdmin(req);
+        const forum = await Forum.findOne({ _id: req.params.id, deletedAt: null });
+        if (!forum) return res.status(404).json({ message: 'No encontrado' });
+        forum.pinned = !forum.pinned;
+        await forum.save();
+        res.status(200).json(forum);
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+};
+
+ForumController.adminDelete = async (req, res) => {
+    try {
+        await verifyAdmin(req);
+        const forum = await Forum.findOneAndUpdate(
+            { _id: req.params.id, deletedAt: null },
+            { deletedAt: new Date() },
+            { new: true }
+        );
+        if (!forum) return res.status(404).json({ message: 'No encontrado' });
+        res.status(200).json({ message: 'Eliminado correctamente' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+ForumController.adminGetComments = async (req, res) => {
+    try {
+        await verifyAdmin(req);
+        const { page = 1 } = req.query;
+        const limit = 20;
+        const skip = (Number(page) - 1) * limit;
+        const [comments, total] = await Promise.all([
+            Comment.find({ forum: req.params.id, deletedAt: null })
+                .populate('user', 'firstName lastName email image')
+                .sort({ createdAt: -1 })
+                .skip(skip)
+                .limit(limit),
+            Comment.countDocuments({ forum: req.params.id, deletedAt: null }),
+        ]);
+        res.status(200).json({ comments, total, page: Number(page), totalPages: Math.ceil(total / limit) });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+ForumController.adminDeleteComment = async (req, res) => {
+    try {
+        await verifyAdmin(req);
+        const comment = await Comment.findOneAndUpdate(
+            { _id: req.params.commentId, deletedAt: null },
+            { deletedAt: new Date() },
+            { new: true }
+        );
+        if (!comment) return res.status(404).json({ message: 'Comentario no encontrado' });
+        res.status(200).json({ message: 'Comentario eliminado' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
 export default ForumController;

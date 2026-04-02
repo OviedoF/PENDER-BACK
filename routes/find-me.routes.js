@@ -24,4 +24,16 @@ FindMeController.update);
 
 router.delete('/:id', FindMeController.delete);
 
+// ─── ADMIN ROUTES ─────────────────────────────────────────────────────────────
+// Specific routes must come before parameterized (/admin/:id)
+router.get('/admin/all', FindMeController.adminGetAll);
+router.post('/admin/merge', FindMeController.adminMerge);
+router.get('/admin/matches/:id', FindMeController.adminGetMatches);
+router.get('/admin/zones', FindMeController.adminGetZoneConfigs);
+router.put('/admin/zones', FindMeController.adminUpsertZoneConfig);
+router.get('/admin/:id', FindMeController.adminGetById);
+router.put('/admin/:id/status', FindMeController.adminUpdateStatus);
+router.delete('/admin/:id', FindMeController.adminDelete);
+router.post('/admin/:id/notify', FindMeController.adminSendNotification);
+
 export default router;

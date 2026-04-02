@@ -445,4 +445,229 @@ CommunityController.getRoleMembers = async (req, res) => {
     }
 }
 
+// ─── ADMIN ────────────────────────────────────────────────────────────────────
+
+const verifyAdmin = async (req) => {
+    const token = req.headers.authorization.split(' ')[1];
+    const payload = jwt.verify(token, process.env.JWT_SECRET);
+    const user = await User.findOne({ _id: payload.id });
+    if (!user || user.role !== 'admin') throw new Error('No tienes permisos de administrador');
+    return user;
+};
+
+CommunityController.adminGetAll = async (req, res) => {
+    try {
+        await verifyAdmin(req);
+        const { page = 1, search, oficial, featured, privacidad } = req.query;
+        const limit = 20;
+        const skip = (Number(page) - 1) * limit;
+        const filter = { deletedAt: null };
+        if (oficial !== undefined && oficial !== '') filter.oficial = oficial === 'true';
+        if (featured !== undefined && featured !== '') filter.featured = featured === 'true';
+        if (privacidad) filter.privacidad = privacidad;
+        if (search && search.trim()) {
+            const regex = new RegExp(search, 'i');
+            filter.$or = [{ nombre: regex }, { resena: regex }, { departamento: regex }, { ciudad: regex }];
+        }
+        const [communities, total] = await Promise.all([
+            Community.find(filter)
+                .populate('owner', 'firstName lastName email')
+                .sort({ featured: -1, oficial: -1, createdAt: -1 })
+                .skip(skip)
+                .limit(limit),
+            Community.countDocuments(filter),
+        ]);
+        const result = communities.map(c => ({ ...c.toObject(), memberCount: c.members.length }));
+        res.status(200).json({ communities: result, total, page: Number(page), totalPages: Math.ceil(total / limit) });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+CommunityController.adminGetById = async (req, res) => {
+    try {
+        await verifyAdmin(req);
+        const community = await Community.findOne({ _id: req.params.id })
+            .populate('owner', 'firstName lastName email image')
+            .populate('members', 'firstName lastName email image')
+            .populate('bannedMembers', 'firstName lastName email');
+        if (!community) return res.status(404).json({ message: 'No encontrado' });
+        const commentCount = await Comment.countDocuments({ community: community._id, deletedAt: null });
+        res.status(200).json({ ...community.toObject(), commentCount, memberCount: community.members.length });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+CommunityController.adminToggleOfficial = async (req, res) => {
+    try {
+        await verifyAdmin(req);
+        const community = await Community.findOne({ _id: req.params.id, deletedAt: null });
+        if (!community) return res.status(404).json({ message: 'No encontrado' });
+        community.oficial = !community.oficial;
+        await community.save();
+        res.status(200).json(community);
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+};
+
+CommunityController.adminToggleFeatured = async (req, res) => {
+    try {
+        await verifyAdmin(req);
+        const community = await Community.findOne({ _id: req.params.id, deletedAt: null });
+        if (!community) return res.status(404).json({ message: 'No encontrado' });
+        community.featured = !community.featured;
+        await community.save();
+        res.status(200).json(community);
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+};
+
+CommunityController.adminBanUser = async (req, res) => {
+    try {
+        await verifyAdmin(req);
+        const { userId } = req.body;
+        if (!userId) return res.status(400).json({ message: 'userId requerido' });
+        const community = await Community.findOne({ _id: req.params.id, deletedAt: null });
+        if (!community) return res.status(404).json({ message: 'No encontrado' });
+        const alreadyBanned = community.bannedMembers.some(m => m.toString() === userId);
+        if (!alreadyBanned) community.bannedMembers.push(userId);
+        community.members = community.members.filter(m => m.toString() !== userId);
+        await community.save();
+        await createUserNotification(userId, 'Expulsado de comunidad', `Has sido expulsado de la comunidad "${community.nombre}".`, 'usuario/community');
+        res.status(200).json({ message: 'Usuario baneado correctamente' });
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+};
+
+CommunityController.adminUnbanUser = async (req, res) => {
+    try {
+        await verifyAdmin(req);
+        const { userId } = req.body;
+        if (!userId) return res.status(400).json({ message: 'userId requerido' });
+        const community = await Community.findOne({ _id: req.params.id, deletedAt: null });
+        if (!community) return res.status(404).json({ message: 'No encontrado' });
+        community.bannedMembers = community.bannedMembers.filter(m => m.toString() !== userId);
+        await community.save();
+        res.status(200).json({ message: 'Usuario desbaneado correctamente' });
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+};
+
+CommunityController.adminDelete = async (req, res) => {
+    try {
+        await verifyAdmin(req);
+        const community = await Community.findOneAndUpdate(
+            { _id: req.params.id, deletedAt: null },
+            { deletedAt: new Date() },
+            { new: true }
+        );
+        if (!community) return res.status(404).json({ message: 'No encontrado' });
+        res.status(200).json({ message: 'Eliminado correctamente' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+CommunityController.adminGetComments = async (req, res) => {
+    try {
+        await verifyAdmin(req);
+        const { page = 1 } = req.query;
+        const limit = 20;
+        const skip = (Number(page) - 1) * limit;
+        const [comments, total] = await Promise.all([
+            Comment.find({ community: req.params.id, deletedAt: null })
+                .populate('user', 'firstName lastName email image')
+                .sort({ createdAt: -1 })
+                .skip(skip)
+                .limit(limit),
+            Comment.countDocuments({ community: req.params.id, deletedAt: null }),
+        ]);
+        res.status(200).json({ comments, total, page: Number(page), totalPages: Math.ceil(total / limit) });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+CommunityController.adminDeleteComment = async (req, res) => {
+    try {
+        await verifyAdmin(req);
+        const comment = await Comment.findOneAndUpdate(
+            { _id: req.params.commentId, deletedAt: null },
+            { deletedAt: new Date() },
+            { new: true }
+        );
+        if (!comment) return res.status(404).json({ message: 'Comentario no encontrado' });
+        res.status(200).json({ message: 'Comentario eliminado' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+CommunityController.adminGetMetrics = async (req, res) => {
+    try {
+        await verifyAdmin(req);
+        const [totalCommunities, membersAgg, totalComments, totalForums] = await Promise.all([
+            Community.countDocuments({ deletedAt: null }),
+            Community.aggregate([
+                { $match: { deletedAt: null } },
+                { $project: { count: { $size: '$members' } } },
+                { $group: { _id: null, total: { $sum: '$count' } } },
+            ]),
+            Comment.countDocuments({ deletedAt: null }),
+            (await import('../models/Forum.js')).default.countDocuments({ deletedAt: null }),
+        ]);
+        const topByMembers = await Community.aggregate([
+            { $match: { deletedAt: null } },
+            { $addFields: { memberCount: { $size: '$members' } } },
+            { $sort: { memberCount: -1 } },
+            { $limit: 5 },
+            { $project: { nombre: 1, imagen: 1, privacidad: 1, oficial: 1, featured: 1, memberCount: 1 } },
+        ]);
+        const topByComments = await Comment.aggregate([
+            { $match: { deletedAt: null } },
+            { $group: { _id: '$community', commentCount: { $sum: 1 } } },
+            { $sort: { commentCount: -1 } },
+            { $limit: 5 },
+            { $lookup: { from: 'communities', localField: '_id', foreignField: '_id', as: 'community' } },
+            { $unwind: '$community' },
+            { $match: { 'community.deletedAt': null } },
+            { $project: { nombre: '$community.nombre', imagen: '$community.imagen', oficial: '$community.oficial', commentCount: 1 } },
+        ]);
+        res.status(200).json({
+            totals: { communities: totalCommunities, forums: totalForums, members: membersAgg[0]?.total ?? 0, comments: totalComments },
+            topByMembers,
+            topByComments,
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+CommunityController.adminCreateOfficial = async (req, res) => {
+    try {
+        const admin = await verifyAdmin(req);
+        const { nombre, resena, privacidad = 'publica', visibilidad = 'visible', imagen, departamento, ciudad, distrito } = req.body;
+        if (!nombre || !resena) return res.status(400).json({ message: 'Nombre y resena requeridos' });
+        const community = new Community({
+            nombre, resena, privacidad, visibilidad,
+            imagen: imagen || `${process.env.API_URL}/api/uploads/default.png`,
+            owner: admin._id,
+            oficial: true,
+            featured: false,
+            departamento: departamento || null,
+            ciudad: ciudad || null,
+            distrito: distrito || null,
+        });
+        await community.save();
+        res.status(201).json(community);
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+};
+
 export default CommunityController;

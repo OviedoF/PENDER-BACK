@@ -8,6 +8,11 @@ const CommunityComment = new mongoose.Schema({
     date: { type: Date, default: Date.now },
     likes: { type: [mongoose.Schema.Types.ObjectId], ref: 'User', default: [] },
     dislikes: { type: [mongoose.Schema.Types.ObjectId], ref: 'User', default: [] },
+    reports: [{
+        user:      { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+        reason:    { type: String, enum: ['spam', 'ofensivo', 'inapropiado', 'acoso', 'otro'], default: 'otro' },
+        createdAt: { type: Date, default: Date.now },
+    }],
     deletedAt: { type: Date, default: null }
 }, { timestamps: true });
 

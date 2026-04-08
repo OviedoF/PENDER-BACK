@@ -17,11 +17,15 @@ agenda.on('ready', async () => {
 
   await agenda.start();
 
-  await agenda.every('1 minute', 'coupons_test');
-  await agenda.every('1 hour', 'expire_trials');
+  await agenda.every('1 minute',  'coupons_test');
+  await agenda.every('1 hour',    'expire_trials');
+  await agenda.every('2 minutes', 'check_subscriptions');
+  await agenda.every('1 minute',  'activate_scheduled_trials');
 
   console.log('🕒 Job coupons_test programado');
   console.log('🕒 Job expire_trials programado');
+  console.log('🕒 Job check_subscriptions programado');
+  console.log('🕒 Job activate_scheduled_trials programado');
 });
 
 agenda.on('error', (err) => {

@@ -613,4 +613,66 @@ ForumController.adminDeleteComment = async (req, res) => {
     }
 };
 
+// POST /comment/:id/report  (user-facing)
+ForumController.reportComment = async (req, res) => {
+    try {
+        const token = req.headers.authorization?.split(' ')[1];
+        if (!token) return res.status(401).json({ message: 'Token requerido' });
+        const payload = jwt.verify(token, process.env.JWT_SECRET);
+        const { reason = 'otro' } = req.body;
+
+        const comment = await Comment.findOne({ _id: req.params.id, deletedAt: null });
+        if (!comment) return res.status(404).json({ message: 'Comentario no encontrado' });
+
+        const alreadyReported = comment.reports.some(r => r.user?.toString() === payload.id);
+        if (alreadyReported) return res.status(400).json({ message: 'Ya reportaste este comentario' });
+
+        comment.reports.push({ user: payload.id, reason });
+        await comment.save();
+        res.status(200).json({ message: 'Comentario reportado' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// GET /admin/reported-comments
+ForumController.adminGetReportedComments = async (req, res) => {
+    try {
+        await verifyAdmin(req);
+        const { page = 1 } = req.query;
+        const limit = 20;
+        const skip  = (Number(page) - 1) * limit;
+
+        const [comments, total] = await Promise.all([
+            Comment.find({ 'reports.0': { $exists: true }, deletedAt: null })
+                .populate('user',  'firstName lastName email image')
+                .populate('forum', 'titulo')
+                .sort({ 'reports': -1 })
+                .skip(skip)
+                .limit(limit),
+            Comment.countDocuments({ 'reports.0': { $exists: true }, deletedAt: null }),
+        ]);
+
+        res.status(200).json({ comments, total, page: Number(page), totalPages: Math.ceil(total / limit) });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// PUT /admin/comment/:id/dismiss-reports
+ForumController.adminDismissReports = async (req, res) => {
+    try {
+        await verifyAdmin(req);
+        const comment = await Comment.findOneAndUpdate(
+            { _id: req.params.id, deletedAt: null },
+            { $set: { reports: [] } },
+            { new: true }
+        );
+        if (!comment) return res.status(404).json({ message: 'Comentario no encontrado' });
+        res.status(200).json({ message: 'Reportes descartados' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
 export default ForumController;

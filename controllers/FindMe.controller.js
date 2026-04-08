@@ -384,6 +384,10 @@ FoundMeController.adminMerge = async (req, res) => {
         await verifyAdmin(req);
         const { survivorId, duplicateId } = req.body;
         if (!survivorId || !duplicateId) return res.status(400).json({ message: 'Faltan IDs' });
+        if (survivorId === duplicateId) return res.status(400).json({ message: 'El reporte principal y el duplicado no pueden ser el mismo' });
+
+        const survivor = await FindMe.findOne({ _id: survivorId, deletedAt: null });
+        if (!survivor) return res.status(404).json({ message: 'Reporte principal no encontrado' });
 
         const duplicate = await FindMe.findOneAndUpdate(
             { _id: duplicateId, deletedAt: null },
@@ -391,9 +395,6 @@ FoundMeController.adminMerge = async (req, res) => {
             { new: true }
         );
         if (!duplicate) return res.status(404).json({ message: 'Reporte duplicado no encontrado' });
-
-        const survivor = await FindMe.findOne({ _id: survivorId, deletedAt: null });
-        if (!survivor) return res.status(404).json({ message: 'Reporte principal no encontrado' });
 
         res.status(200).json({ message: 'Reportes fusionados correctamente', survivor });
     } catch (error) {

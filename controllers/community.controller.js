@@ -611,7 +611,10 @@ CommunityController.adminDeleteComment = async (req, res) => {
 CommunityController.adminGetMetrics = async (req, res) => {
     try {
         await verifyAdmin(req);
-        const [totalCommunities, membersAgg, totalComments, totalForums] = await Promise.all([
+        const ForumModel   = (await import('../models/Forum.js')).default;
+        const ForumComment = (await import('../models/forumComment.js')).default;
+
+        const [totalCommunities, membersAgg, totalComments, totalForums, likesAgg, forumLikesAgg] = await Promise.all([
             Community.countDocuments({ deletedAt: null }),
             Community.aggregate([
                 { $match: { deletedAt: null } },
@@ -619,8 +622,23 @@ CommunityController.adminGetMetrics = async (req, res) => {
                 { $group: { _id: null, total: { $sum: '$count' } } },
             ]),
             Comment.countDocuments({ deletedAt: null }),
-            (await import('../models/Forum.js')).default.countDocuments({ deletedAt: null }),
+            ForumModel.countDocuments({ deletedAt: null }),
+            Comment.aggregate([
+                { $match: { deletedAt: null } },
+                { $group: { _id: null, total: { $sum: { $size: '$likes' } } } },
+            ]),
+            ForumModel.aggregate([
+                { $match: { deletedAt: null } },
+                { $group: { _id: null, total: { $sum: { $size: '$likes' } } } },
+            ]),
         ]);
+
+        const totalMembers = membersAgg[0]?.total ?? 0
+        const totalLikes   = (likesAgg[0]?.total ?? 0) + (forumLikesAgg[0]?.total ?? 0)
+        const participationRate = totalMembers > 0
+            ? Number(((totalComments / totalMembers) * 100).toFixed(1))
+            : 0
+
         const topByMembers = await Community.aggregate([
             { $match: { deletedAt: null } },
             { $addFields: { memberCount: { $size: '$members' } } },
@@ -628,6 +646,7 @@ CommunityController.adminGetMetrics = async (req, res) => {
             { $limit: 5 },
             { $project: { nombre: 1, imagen: 1, privacidad: 1, oficial: 1, featured: 1, memberCount: 1 } },
         ]);
+
         const topByComments = await Comment.aggregate([
             { $match: { deletedAt: null } },
             { $group: { _id: '$community', commentCount: { $sum: 1 } } },
@@ -638,10 +657,25 @@ CommunityController.adminGetMetrics = async (req, res) => {
             { $match: { 'community.deletedAt': null } },
             { $project: { nombre: '$community.nombre', imagen: '$community.imagen', oficial: '$community.oficial', commentCount: 1 } },
         ]);
+
+        const topByEngagement = await Comment.aggregate([
+            { $match: { deletedAt: null } },
+            { $group: { _id: '$community', likes: { $sum: { $size: '$likes' } }, comments: { $sum: 1 } } },
+            { $addFields: { score: { $add: ['$likes', '$comments'] } } },
+            { $sort: { score: -1 } },
+            { $limit: 5 },
+            { $lookup: { from: 'communities', localField: '_id', foreignField: '_id', as: 'community' } },
+            { $unwind: '$community' },
+            { $match: { 'community.deletedAt': null } },
+            { $project: { nombre: '$community.nombre', imagen: '$community.imagen', oficial: '$community.oficial', likes: 1, comments: 1, score: 1 } },
+        ]);
+
         res.status(200).json({
-            totals: { communities: totalCommunities, forums: totalForums, members: membersAgg[0]?.total ?? 0, comments: totalComments },
+            totals: { communities: totalCommunities, forums: totalForums, members: totalMembers, comments: totalComments, likes: totalLikes },
+            participationRate,
             topByMembers,
             topByComments,
+            topByEngagement,
         });
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -667,6 +701,68 @@ CommunityController.adminCreateOfficial = async (req, res) => {
         res.status(201).json(community);
     } catch (error) {
         res.status(400).json({ error: error.message });
+    }
+};
+
+// POST /comment/:id/report  (user-facing)
+CommunityController.reportComment = async (req, res) => {
+    try {
+        const token = req.headers.authorization?.split(' ')[1];
+        if (!token) return res.status(401).json({ message: 'Token requerido' });
+        const payload = jwt.verify(token, process.env.JWT_SECRET);
+        const { reason = 'otro' } = req.body;
+
+        const comment = await Comment.findOne({ _id: req.params.id, deletedAt: null });
+        if (!comment) return res.status(404).json({ message: 'Comentario no encontrado' });
+
+        const alreadyReported = comment.reports.some(r => r.user?.toString() === payload.id);
+        if (alreadyReported) return res.status(400).json({ message: 'Ya reportaste este comentario' });
+
+        comment.reports.push({ user: payload.id, reason });
+        await comment.save();
+        res.status(200).json({ message: 'Comentario reportado' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// GET /admin/reported-comments
+CommunityController.adminGetReportedComments = async (req, res) => {
+    try {
+        await verifyAdmin(req);
+        const { page = 1 } = req.query;
+        const limit = 20;
+        const skip  = (Number(page) - 1) * limit;
+
+        const [comments, total] = await Promise.all([
+            Comment.find({ 'reports.0': { $exists: true }, deletedAt: null })
+                .populate('user',      'firstName lastName email image')
+                .populate('community', 'nombre')
+                .sort({ 'reports': -1 })
+                .skip(skip)
+                .limit(limit),
+            Comment.countDocuments({ 'reports.0': { $exists: true }, deletedAt: null }),
+        ]);
+
+        res.status(200).json({ comments, total, page: Number(page), totalPages: Math.ceil(total / limit) });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// PUT /admin/comment/:id/dismiss-reports
+CommunityController.adminDismissReports = async (req, res) => {
+    try {
+        await verifyAdmin(req);
+        const comment = await Comment.findOneAndUpdate(
+            { _id: req.params.id, deletedAt: null },
+            { $set: { reports: [] } },
+            { new: true }
+        );
+        if (!comment) return res.status(404).json({ message: 'Comentario no encontrado' });
+        res.status(200).json({ message: 'Reportes descartados' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
     }
 };
 

@@ -15,10 +15,13 @@ router.put('/admin/:id/official',           CommunityController.adminToggleOffic
 router.put('/admin/:id/featured',           CommunityController.adminToggleFeatured);
 router.put('/admin/:id/ban',                CommunityController.adminBanUser);
 router.put('/admin/:id/unban',              CommunityController.adminUnbanUser);
+router.get('/admin/reported-comments',       CommunityController.adminGetReportedComments);
+router.put('/admin/comment/:id/dismiss',     CommunityController.adminDismissReports);
 router.delete('/admin/comment/:commentId',  CommunityController.adminDeleteComment);
 router.delete('/admin/:id',                 CommunityController.adminDelete);
 
 // ─── PUBLIC ───────────────────────────────────────────────────────────────────
+router.post('/comment/:id/report',          CommunityController.reportComment);
 router.post('/', upload.single('imagen'), CommunityController.create);
 router.get('/', CommunityController.getAll);
 router.get('/owner', CommunityController.getByOwner);

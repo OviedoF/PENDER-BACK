@@ -1,10 +1,86 @@
+import axios from 'axios'
 import jwt from 'jsonwebtoken'
+import { google } from 'googleapis'
 import User from '../models/User.js'
 import Subscription from '../models/Subscription.js'
 import Payment from '../models/Payment.js'
 import SuscriptionChange from '../models/SuscriptionChange.js'
+import ScheduledTrial from '../models/ScheduledTrial.js'
+
+const MP_API = 'https://api.mercadopago.com'
+const mpHeaders = () => ({
+  Authorization: `Bearer ${process.env.MP_ACCESS_TOKEN}`,
+  'Content-Type': 'application/json',
+})
 
 const PLAN_PRICES = { free: 0, basic: 9.99, pro: 19.99 }
+
+async function generateInvoiceNumber() {
+  const year  = new Date().getFullYear()
+  const count = await Payment.countDocuments({ invoiceNumber: { $regex: `^INV-${year}-` } })
+  const seq   = String(count + 1).padStart(4, '0')
+  return `INV-${year}-${seq}`
+}
+
+async function verifyUser(req) {
+  const token = req.headers.authorization?.split(' ')[1]
+  if (!token) throw new Error('Token requerido')
+  const decoded = jwt.verify(token, process.env.JWT_SECRET)
+  const user = await User.findById(decoded.id)
+  if (!user) throw new Error('Usuario no encontrado')
+  return user
+}
+
+const BILLING_MONTHS = { monthly: 1, annual: 12 }
+const PLAN_PRICES_MP = {
+  basic: { monthly: 9.99, annual: 9.99 * 10 },
+  pro:   { monthly: 19.99, annual: 19.99 * 10 },
+}
+
+// ─── IAP ──────────────────────────────────────────────────────────────────────
+
+// Product IDs must match App Store Connect and Google Play Console exactly
+const IAP_PRODUCT_MAP = {
+  petnder_basic_monthly: { plan: 'basic', billingCycle: 'monthly' },
+  petnder_basic_annual:  { plan: 'basic', billingCycle: 'annual'  },
+  petnder_pro_monthly:   { plan: 'pro',   billingCycle: 'monthly' },
+  petnder_pro_annual:    { plan: 'pro',   billingCycle: 'annual'  },
+}
+
+async function verifyAppleReceipt(receiptData) {
+  const payload = {
+    'receipt-data': receiptData,
+    password: process.env.APPLE_IAP_SHARED_SECRET,
+    'exclude-old-transactions': true,
+  }
+  let { data } = await axios.post('https://buy.itunes.apple.com/verifyReceipt', payload)
+  // Status 21007 = sandbox receipt sent to production endpoint → retry on sandbox
+  if (data.status === 21007) {
+    const sandbox = await axios.post('https://sandbox.itunes.apple.com/verifyReceipt', payload)
+    data = sandbox.data
+  }
+  if (data.status !== 0) throw new Error(`Apple IAP verification failed (status ${data.status})`)
+  return data
+}
+
+async function verifyAndroidPurchase(productId, purchaseToken) {
+  const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON)
+  const auth = new google.auth.GoogleAuth({
+    credentials,
+    scopes: ['https://www.googleapis.com/auth/androidpublisher'],
+  })
+  const publisher = google.androidpublisher({ version: 'v3', auth })
+  const { data } = await publisher.purchases.subscriptions.get({
+    packageName: process.env.ANDROID_PACKAGE_NAME,
+    subscriptionId: productId,
+    token: purchaseToken,
+  })
+  // paymentState 1 = payment received, 2 = free trial
+  if (data.paymentState !== 1 && data.paymentState !== 2) {
+    throw new Error(`Google Play payment not confirmed (paymentState ${data.paymentState})`)
+  }
+  return data
+}
 
 async function verifyAdmin(req) {
   const token = req.headers.authorization?.split(' ')[1]
@@ -196,20 +272,43 @@ const SubscriptionController = {
   // POST /admin/:userId/trial  body: { plan, days, scheduledAt? }
   async adminActivateTrial(req, res) {
     try {
-      await verifyAdmin(req)
-      const { plan = 'pro', days = 7 } = req.body
+      const admin = await verifyAdmin(req)
+      const { plan = 'pro', days = 7, scheduledAt } = req.body
 
       const user = await User.findById(req.params.userId)
       if (!user) return res.status(404).json({ message: 'Usuario no encontrado' })
 
+      // Activación programada: guardar para procesamiento futuro
+      if (scheduledAt) {
+        const scheduledDate = new Date(scheduledAt)
+        if (isNaN(scheduledDate.getTime()) || scheduledDate <= new Date()) {
+          return res.status(400).json({ message: 'scheduledAt debe ser una fecha futura válida' })
+        }
+
+        const scheduled = await ScheduledTrial.create({
+          user:        user._id,
+          plan,
+          days:        Number(days),
+          scheduledAt: scheduledDate,
+          createdBy:   admin._id,
+        })
+
+        return res.json({
+          message:     `Prueba gratuita programada para ${scheduledDate.toISOString()}`,
+          scheduledAt: scheduledDate,
+          scheduled,
+        })
+      }
+
+      // Activación inmediata
       const trialEnd = new Date()
       trialEnd.setDate(trialEnd.getDate() + Number(days))
 
       const sub = await upsertSubscription(user, {
         plan,
-        status:   'trial',
+        status:      'trial',
         trialEnd,
-        price:    0,
+        price:       0,
         cancelledAt: null,
       })
 
@@ -219,6 +318,40 @@ const SubscriptionController = {
       await SuscriptionChange.create({ user: user._id, from: oldPlan, to: plan })
 
       res.json({ message: `Prueba gratuita de ${days} dias activada`, subscription: sub, trialEnd })
+    } catch (err) {
+      res.status(500).json({ message: err.message })
+    }
+  },
+
+  // GET /admin/payments/:id/invoice
+  async adminGetInvoice(req, res) {
+    try {
+      await verifyAdmin(req)
+      const payment = await Payment.findById(req.params.id)
+        .populate('user',         'name email')
+        .populate('subscription', 'plan billingCycle startDate endDate')
+      if (!payment) return res.status(404).json({ message: 'Pago no encontrado' })
+      if (!payment.invoiceNumber) return res.status(404).json({ message: 'Este pago no tiene factura generada' })
+
+      res.json({
+        invoiceNumber: payment.invoiceNumber,
+        issuedAt:      payment.paidAt ?? payment.createdAt,
+        status:        payment.status,
+        amount:        payment.amount,
+        currency:      payment.currency,
+        description:   payment.description,
+        method:        payment.method,
+        user: {
+          name:  payment.user?.name,
+          email: payment.user?.email,
+        },
+        subscription: {
+          plan:         payment.subscription?.plan,
+          billingCycle: payment.subscription?.billingCycle,
+          startDate:    payment.subscription?.startDate,
+          endDate:      payment.subscription?.endDate,
+        },
+      })
     } catch (err) {
       res.status(500).json({ message: err.message })
     }
@@ -352,7 +485,10 @@ const SubscriptionController = {
       if (!payment) return res.status(404).json({ message: 'Pago no encontrado' })
 
       payment.status = status
-      if (status === 'approved') payment.paidAt = new Date()
+      if (status === 'approved') {
+        payment.paidAt = new Date()
+        if (!payment.invoiceNumber) payment.invoiceNumber = await generateInvoiceNumber()
+      }
       if (description) payment.description = description
       await payment.save()
 
@@ -372,38 +508,282 @@ const SubscriptionController = {
     }
   },
 
+  // ─── USER-FACING ──────────────────────────────────────────────────────────────
+
+  // POST /  body: { plan: 'basic'|'pro', billingCycle: 'monthly'|'annual' }
+  async createSubscription(req, res) {
+    try {
+      const user = await verifyUser(req)
+      const { plan, billingCycle = 'monthly' } = req.body
+      if (!['basic', 'pro'].includes(plan)) return res.status(400).json({ message: 'Plan invalido' })
+      if (!['monthly', 'annual'].includes(billingCycle)) return res.status(400).json({ message: 'Ciclo invalido' })
+
+      const amount    = PLAN_PRICES_MP[plan][billingCycle]
+      const frequency = BILLING_MONTHS[billingCycle]
+
+      const { data } = await axios.post(
+        `${MP_API}/preapproval`,
+        {
+          auto_recurring: {
+            frequency,
+            frequency_type: 'months',
+            transaction_amount: amount,
+            currency_id: 'USD',
+          },
+          back_url:           process.env.FRONTEND_URL,
+          payer_email:        user.email,
+          reason:             `Plan ${plan} Petnder - ${billingCycle === 'annual' ? 'Anual' : 'Mensual'}`,
+          notification_url:   `${process.env.API_URL}/api/subscription/webhook/mercadopago`,
+          external_reference: JSON.stringify({ userId: String(user._id), plan, billingCycle }),
+        },
+        { headers: mpHeaders() }
+      )
+
+      res.json({ init_point: data.init_point, preapprovalId: data.id })
+    } catch (err) {
+      res.status(500).json({ message: err.message })
+    }
+  },
+
+  // POST /verify  body: { preapprovalId }
+  async verifySubscription(req, res) {
+    try {
+      const user = await verifyUser(req)
+      const { preapprovalId } = req.body
+      if (!preapprovalId) return res.status(400).json({ message: 'preapprovalId requerido' })
+
+      const { data } = await axios.get(
+        `${MP_API}/preapproval/${preapprovalId}`,
+        { headers: mpHeaders() }
+      )
+
+      if (data.status !== 'authorized') {
+        return res.status(400).json({ message: `Estado de suscripcion en MP: ${data.status}` })
+      }
+
+      const { plan, billingCycle = 'monthly' } = JSON.parse(data.external_reference ?? '{}')
+      const endDate = new Date()
+      endDate.setMonth(endDate.getMonth() + BILLING_MONTHS[billingCycle])
+
+      const oldPlan = user.suscription
+      const sub = await upsertSubscription(user, {
+        plan,
+        status:                    'active',
+        billingCycle,
+        price:                     PLAN_PRICES[plan],
+        mercadopagoSubscriptionId: preapprovalId,
+        startDate:                 new Date(),
+        endDate,
+        cancelledAt:               null,
+      })
+
+      user.suscription = plan
+      await user.save()
+      await SuscriptionChange.create({ user: user._id, from: oldPlan, to: plan })
+
+      await Payment.create({
+        user:                 user._id,
+        subscription:         sub._id,
+        amount:               PLAN_PRICES_MP[plan][billingCycle],
+        currency:             'USD',
+        status:               'approved',
+        method:               'mercadopago',
+        mercadopagoPaymentId: preapprovalId,
+        paidAt:               new Date(),
+        invoiceNumber:        await generateInvoiceNumber(),
+        description:          `Suscripcion ${plan} - ${billingCycle}`,
+      })
+
+      res.json({ message: 'Suscripcion activada', subscription: sub })
+    } catch (err) {
+      res.status(500).json({ message: err.message })
+    }
+  },
+
+  // PUT /cancel
+  async cancelSubscription(req, res) {
+    try {
+      const user = await verifyUser(req)
+      const sub  = await Subscription.findOne({ user: user._id, status: { $in: ['active', 'trial'] }, deletedAt: null })
+      if (!sub) return res.status(404).json({ message: 'No hay suscripcion activa' })
+
+      if (sub.mercadopagoSubscriptionId) {
+        try {
+          await axios.put(
+            `${MP_API}/preapproval/${sub.mercadopagoSubscriptionId}`,
+            { status: 'cancelled' },
+            { headers: mpHeaders() }
+          )
+        } catch (mpErr) {
+          console.error('Error cancelando preapproval en MP:', mpErr.message)
+        }
+      }
+
+      const oldPlan = user.suscription
+      sub.status                    = 'cancelled'
+      sub.cancelledAt               = new Date()
+      sub.plan                      = 'free'
+      sub.price                     = 0
+      sub.mercadopagoSubscriptionId = null
+      await sub.save()
+
+      user.suscription = 'free'
+      await user.save()
+      await SuscriptionChange.create({ user: user._id, from: oldPlan, to: 'free' })
+
+      res.json({ message: 'Suscripcion cancelada' })
+    } catch (err) {
+      res.status(500).json({ message: err.message })
+    }
+  },
+
+  // ─── IAP ──────────────────────────────────────────────────────────────────────
+
+  // POST /iap/verify
+  // body: { platform: 'ios'|'android', productId, receiptData? (ios), purchaseToken? (android) }
+  async verifyIAP(req, res) {
+    try {
+      const user = await verifyUser(req)
+      const { platform, productId, receiptData, purchaseToken } = req.body
+
+      if (!platform || !productId) return res.status(400).json({ message: 'platform y productId requeridos' })
+
+      const mapping = IAP_PRODUCT_MAP[productId]
+      if (!mapping) return res.status(400).json({ message: `productId desconocido: ${productId}` })
+
+      const { plan, billingCycle } = mapping
+
+      if (platform === 'ios') {
+        if (!receiptData) return res.status(400).json({ message: 'receiptData requerido para iOS' })
+        await verifyAppleReceipt(receiptData)
+      } else if (platform === 'android') {
+        if (!purchaseToken) return res.status(400).json({ message: 'purchaseToken requerido para Android' })
+        await verifyAndroidPurchase(productId, purchaseToken)
+      } else {
+        return res.status(400).json({ message: 'platform debe ser ios o android' })
+      }
+
+      const endDate = new Date()
+      endDate.setMonth(endDate.getMonth() + BILLING_MONTHS[billingCycle])
+
+      const oldPlan = user.suscription
+      const sub = await upsertSubscription(user, {
+        plan,
+        status:      'active',
+        billingCycle,
+        price:       PLAN_PRICES[plan],
+        startDate:   new Date(),
+        endDate,
+        cancelledAt: null,
+        mercadopagoSubscriptionId: null,
+      })
+
+      user.suscription = plan
+      await user.save()
+      if (oldPlan !== plan) await SuscriptionChange.create({ user: user._id, from: oldPlan, to: plan })
+
+      await Payment.create({
+        user:          user._id,
+        subscription:  sub._id,
+        amount:        PLAN_PRICES[plan],
+        currency:      'USD',
+        status:        'approved',
+        method:        'iap',
+        paidAt:        new Date(),
+        invoiceNumber: await generateInvoiceNumber(),
+        description:   `IAP ${platform} - ${plan} ${billingCycle}`,
+      })
+
+      res.json({ message: 'Suscripción activada', plan, billingCycle })
+    } catch (err) {
+      res.status(500).json({ message: err.message })
+    }
+  },
+
+  // ─── WEBHOOK ──────────────────────────────────────────────────────────────────
+
   // POST /webhook/mercadopago
   async mercadopagoWebhook(req, res) {
-    // Always acknowledge immediately to prevent retries
     res.status(200).json({ received: true })
     try {
       const { type, data } = req.body
-      if (type !== 'payment' || !data?.id) return
+      if (!data?.id) return
 
-      const payment = await Payment.findOne({ mercadopagoPaymentId: String(data.id) })
-      if (!payment) return
+      if (type === 'payment') {
+        const payment = await Payment.findOne({ mercadopagoPaymentId: String(data.id) })
+        if (!payment) return
 
-      const statusMap = {
-        approved:   'approved',
-        rejected:   'rejected',
-        cancelled:  'cancelled',
-        refunded:   'refunded',
-        pending:    'pending',
-        in_process: 'pending',
-      }
-      const newStatus = statusMap[data.status] ?? payment.status
-      if (newStatus === payment.status) return
+        const statusMap = {
+          approved:   'approved',
+          rejected:   'rejected',
+          cancelled:  'cancelled',
+          refunded:   'refunded',
+          pending:    'pending',
+          in_process: 'pending',
+        }
+        const newStatus = statusMap[data.status] ?? payment.status
+        if (newStatus === payment.status) return
 
-      payment.status = newStatus
-      if (newStatus === 'approved') payment.paidAt = new Date()
-      await payment.save()
+        payment.status = newStatus
+        if (newStatus === 'approved') payment.paidAt = new Date()
+        await payment.save()
 
-      if (newStatus === 'approved' && payment.subscription) {
-        const sub = await Subscription.findById(payment.subscription)
-        if (sub) {
-          sub.status = 'active'
+        if (newStatus === 'approved' && payment.subscription) {
+          const sub = await Subscription.findById(payment.subscription)
+          if (sub) {
+            sub.status = 'active'
+            await sub.save()
+            await User.findByIdAndUpdate(sub.user, { suscription: sub.plan })
+          }
+        }
+
+      } else if (type === 'subscription_preapproval') {
+        const { data: preapproval } = await axios.get(
+          `${MP_API}/preapproval/${data.id}`,
+          { headers: mpHeaders() }
+        )
+
+        const sub = await Subscription.findOne({
+          mercadopagoSubscriptionId: String(data.id),
+          deletedAt: null,
+        }).populate('user', '_id suscription')
+        if (!sub) return
+
+        if (preapproval.status === 'authorized') {
+          const { billingCycle = 'monthly' } = JSON.parse(preapproval.external_reference ?? '{}')
+          const endDate = new Date()
+          endDate.setMonth(endDate.getMonth() + BILLING_MONTHS[billingCycle])
+
+          sub.status  = 'active'
+          sub.endDate = endDate
           await sub.save()
-          await User.findByIdAndUpdate(sub.user, { suscription: sub.plan })
+
+          await User.findByIdAndUpdate(sub.user._id, { suscription: sub.plan })
+
+          await Payment.create({
+            user:                 sub.user._id,
+            subscription:         sub._id,
+            amount:               PLAN_PRICES[sub.plan],
+            currency:             'USD',
+            status:               'approved',
+            method:               'mercadopago',
+            mercadopagoPaymentId: String(data.id),
+            paidAt:               new Date(),
+            invoiceNumber:        await generateInvoiceNumber(),
+            description:          `Renovacion ${sub.plan} - ${billingCycle}`,
+          })
+
+        } else if (['cancelled', 'paused', 'pending'].includes(preapproval.status)) {
+          const oldPlan = sub.user?.suscription ?? sub.plan
+          sub.status      = preapproval.status === 'cancelled' ? 'cancelled' : 'paused'
+          sub.plan        = 'free'
+          sub.price       = 0
+          sub.cancelledAt = preapproval.status === 'cancelled' ? new Date() : null
+          sub.mercadopagoSubscriptionId = null
+          await sub.save()
+
+          await User.findByIdAndUpdate(sub.user._id, { suscription: 'free' })
+          await SuscriptionChange.create({ user: sub.user._id, from: oldPlan, to: 'free' })
         }
       }
     } catch (err) {

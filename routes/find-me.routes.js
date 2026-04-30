@@ -31,6 +31,7 @@ router.post('/admin/merge', FindMeController.adminMerge);
 router.get('/admin/matches/:id', FindMeController.adminGetMatches);
 router.get('/admin/zones', FindMeController.adminGetZoneConfigs);
 router.put('/admin/zones', FindMeController.adminUpsertZoneConfig);
+router.post('/admin/zones/notify', FindMeController.adminSendZoneNotification);
 router.get('/admin/:id', FindMeController.adminGetById);
 router.put('/admin/:id/status', FindMeController.adminUpdateStatus);
 router.delete('/admin/:id', FindMeController.adminDelete);

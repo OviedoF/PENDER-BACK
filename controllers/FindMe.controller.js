@@ -1,10 +1,79 @@
 import FindMe from '../models/FindMe.js';
 import User from '../models/User.js';
 import ZoneConfig from '../models/ZoneConfig.js';
+import GeoConfig from '../models/GeoConfig.js';
+import AutomationConfig from '../models/AutomationConfig.js';
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
 import createSystemNotification from '../utils/createSystemNotification.js';
+import createUserNotification from '../utils/createUserNotification.js';
 dotenv.config();
+
+const sendRecoverySurvey = async (reporte) => {
+    try {
+        const autoConfig = await AutomationConfig.findOne({ key: 'global' });
+        if (!autoConfig || !autoConfig.surveyEnabled) return;
+
+        const message = autoConfig.surveyMessage.replace('{nombre}', reporte.nombre);
+        const delay = (autoConfig.surveyDelayMinutes || 0) * 60 * 1000;
+
+        setTimeout(async () => {
+            try {
+                await createUserNotification(
+                    reporte.user,
+                    '¿Cómo fue tu experiencia?',
+                    message,
+                    'usuario/foundeMe/myReports',
+                    null
+                );
+            } catch (err) {
+                console.error('Error enviando encuesta post-recuperación:', err.message);
+            }
+        }, delay);
+    } catch (err) {
+        console.error('Error en sendRecoverySurvey:', err.message);
+    }
+};
+
+const calculateMatchScore = (report, candidate, geoConfig) => {
+    let score = 0;
+    const speciesW = geoConfig.matchingSpeciesWeight || 40;
+    const breedW = geoConfig.matchingBreedWeight || 25;
+    const locationW = geoConfig.matchingLocationWeight || 20;
+    const sizeW = geoConfig.matchingSizeWeight || 15;
+
+    if (report.especie && candidate.especie &&
+        report.especie.toLowerCase() === candidate.especie.toLowerCase()) {
+        score += speciesW;
+    }
+
+    if (report.raza && candidate.raza &&
+        report.raza.toLowerCase() === candidate.raza.toLowerCase()) {
+        score += breedW;
+    } else if (!report.raza && !candidate.raza) {
+        score += breedW * 0.5;
+    }
+
+    if (report.departamento && candidate.departamento &&
+        report.departamento.toLowerCase() === candidate.departamento.toLowerCase()) {
+        score += locationW * 0.5;
+        if (report.ciudad && candidate.ciudad &&
+            report.ciudad.toLowerCase() === candidate.ciudad.toLowerCase()) {
+            score += locationW * 0.3;
+            if (report.distrito && candidate.distrito &&
+                report.distrito.toLowerCase() === candidate.distrito.toLowerCase()) {
+                score += locationW * 0.2;
+            }
+        }
+    }
+
+    if (report.tamano && candidate.tamano &&
+        report.tamano.toLowerCase() === candidate.tamano.toLowerCase()) {
+        score += sizeW;
+    }
+
+    return Math.round(score);
+};
 
 const verifyAdmin = async (req) => {
     const token = req.headers.authorization.split(' ')[1];
@@ -37,6 +106,76 @@ FoundMeController.create = async (req, res) => {
 
     const foundMe = new FindMe({ ...req.body });
     await foundMe.save();
+
+    // Matching automático con score ponderado
+    try {
+      const [geoConfig, autoConfig] = await Promise.all([
+        GeoConfig.findOne({ key: 'global' }),
+        AutomationConfig.findOne({ key: 'global' }),
+      ]);
+
+      const matchingEnabled = geoConfig?.matchingEnabled !== false;
+      const notifyEnabled = autoConfig?.matchingNotifyEnabled !== false;
+
+      if (matchingEnabled) {
+        const opposingTipo = foundMe.tipo === 'reporte' ? 'busqueda' : 'reporte';
+        const daysWindow = geoConfig?.matchingDaysWindow || 30;
+        const minScore = geoConfig?.matchingMinScore || 60;
+        const cutoffDate = new Date();
+        cutoffDate.setDate(cutoffDate.getDate() - daysWindow);
+
+        const candidates = await FindMe.find({
+          _id: { $ne: foundMe._id },
+          deletedAt: null,
+          finished: false,
+          tipo: opposingTipo,
+          createdAt: { $gte: cutoffDate },
+        });
+
+        const tipoLabel = foundMe.tipo === 'reporte' ? 'extraviada' : 'en búsqueda';
+        const especieText = `${foundMe.especie}${foundMe.raza ? ' - ' + foundMe.raza : ''}`;
+        const zonaText = `${foundMe.distrito}, ${foundMe.ciudad}`;
+
+        const notifiedUsers = new Set();
+        let matchCount = 0;
+
+        for (const candidate of candidates) {
+          const score = calculateMatchScore(foundMe, candidate, geoConfig || {});
+          if (score < minScore) continue;
+          matchCount++;
+
+          const userId = candidate.user.toString();
+          if (userId === user._id.toString()) continue;
+          if (notifiedUsers.has(userId)) continue;
+          notifiedUsers.add(userId);
+
+          if (notifyEnabled) {
+            const msgTemplate = autoConfig?.matchingMessage || 'Encontramos una posible coincidencia ({score}%) con tu reporte de {nombre}. ¡Revisala!';
+            const message = msgTemplate
+              .replace('{score}', String(score))
+              .replace('{nombre}', candidate.nombre);
+
+            await createUserNotification(
+              candidate.user,
+              `Posible coincidencia (${score}%)`,
+              message,
+              'usuario/foundeMe/lossPet',
+              { id: foundMe._id.toString() }
+            );
+          }
+        }
+
+        if (matchCount > 0) {
+          await createSystemNotification({
+            title: `Mascota ${tipoLabel} en ${foundMe.departamento}`,
+            text: `Se reportó ${foundMe.nombre} (${especieText}) en ${zonaText}. ${matchCount} coincidencia(s) encontrada(s), se notificó a ${notifiedUsers.size} usuario(s).`,
+          });
+        }
+      }
+    } catch (matchError) {
+      console.error('Error en matching automático:', matchError.message);
+    }
+
     res.status(201).json(foundMe);
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -241,6 +380,7 @@ FoundMeController.update = async (req, res) => {
         title: `${foundMe.nombre} fue encontrado/a!`,
         text: `Nos alegra comunicar que ha vuelto con su dueño!`,
       });
+      sendRecoverySurvey(foundMe);
     }
 
     if (!foundMe) return res.status(404).json({ message: 'Not found' });
@@ -356,6 +496,7 @@ FoundMeController.adminUpdateStatus = async (req, res) => {
                 text: `Nos alegra comunicar que la mascota ha vuelto con su dueno.`,
                 specificUser: reporte.user,
             });
+            sendRecoverySurvey(reporte);
         }
 
         res.status(200).json(reporte);
@@ -467,6 +608,45 @@ FoundMeController.adminUpsertZoneConfig = async (req, res) => {
         res.status(200).json(config);
     } catch (error) {
         res.status(400).json({ error: error.message });
+    }
+};
+
+FoundMeController.adminSendZoneNotification = async (req, res) => {
+    try {
+        await verifyAdmin(req);
+        const { zona, title, text } = req.body;
+        if (!zona || !title || !text) return res.status(400).json({ message: 'Zona, titulo y texto requeridos' });
+
+        const zoneConfig = await ZoneConfig.findOne({ zona, activo: true });
+        if (!zoneConfig) return res.status(404).json({ message: 'Zona no encontrada o inactiva' });
+
+        const activeReports = await FindMe.find({
+            deletedAt: null,
+            finished: false,
+            departamento: new RegExp(`^${zona}$`, 'i'),
+        });
+
+        const notifiedUsers = new Set();
+        for (const report of activeReports) {
+            const userId = report.user.toString();
+            if (notifiedUsers.has(userId)) continue;
+            notifiedUsers.add(userId);
+
+            await createUserNotification(
+                report.user,
+                title,
+                text,
+                'usuario/foundeMe/myReports',
+                null
+            );
+        }
+
+        res.status(200).json({
+            message: `Notificacion enviada a ${notifiedUsers.size} usuario(s) con reportes activos en ${zona}`,
+            notified: notifiedUsers.size,
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
     }
 };
 

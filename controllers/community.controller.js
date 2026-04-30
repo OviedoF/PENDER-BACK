@@ -37,10 +37,9 @@ CommunityController.getAll = async (req, res) => {
 
         const { search } = req.query;
 
-        // * Leer las 10 comunidades con más miembros
         const communities = await Community.find({ deletedAt: null, nombre: { $regex: search || '', $options: 'i' } })
-            .sort({ members: -1 })
-            .limit(10)
+            .sort({ featured: -1, oficial: -1, members: -1 })
+            .limit(20)
             .populate('owner', 'name email')
             .populate('admins', 'name email')
             .populate('mods', 'name email')

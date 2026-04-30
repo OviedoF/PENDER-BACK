@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
+import './AdminRole.js';
 
 const userSchema = new mongoose.Schema({
   username: { type: String, required: true, unique: true },
@@ -49,6 +50,7 @@ const userSchema = new mongoose.Schema({
     seconds: { type: Number, required: true },
   }],
 
+  lastInactivityNotif: { type: Date, default: null },
   suspendedTo: { type: Date, default: null },
   banned: { type: Boolean, default: false },
   verified: { type: Boolean, default: false },
@@ -58,6 +60,8 @@ const userSchema = new mongoose.Schema({
   priority: { type: Number, default: 50 },
   enterpriseActive: { type: Boolean, default: true },
   enterpriseAprobationPending: { type: Boolean, default: false },
+
+  adminRole: { type: mongoose.Schema.Types.ObjectId, ref: 'AdminRole', default: null },
 }, {
   timestamps: true,
 })

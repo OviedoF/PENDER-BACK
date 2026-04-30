@@ -4,6 +4,8 @@ import Subscription from '../models/Subscription.js'
 import Payment from '../models/Payment.js'
 import SuscriptionChange from '../models/SuscriptionChange.js'
 import ScheduledTrial from '../models/ScheduledTrial.js'
+import AutomationConfig from '../models/AutomationConfig.js'
+import createUserNotification from '../utils/createUserNotification.js'
 
 const MP_API = 'https://api.mercadopago.com'
 const PLAN_PRICES = { free: 0, basic: 9.99, pro: 19.99 }
@@ -134,6 +136,7 @@ const subscriptionJob = (agenda) => {
   agenda.define('expire_trials', async () => {
     try {
       const now = new Date()
+      const autoConfig = await AutomationConfig.findOne({ key: 'global' })
 
       // Expire active trials whose trialEnd has passed
       const expiredTrials = await Subscription.find({
@@ -152,6 +155,18 @@ const subscriptionJob = (agenda) => {
         if (sub.user?._id) {
           await User.findByIdAndUpdate(sub.user._id, { suscription: 'free' })
           await SuscriptionChange.create({ user: sub.user._id, from: oldPlan, to: 'free' })
+
+          if (autoConfig?.premiumExpiredEnabled) {
+            const msg = (autoConfig.premiumExpiredMessage || 'Tu suscripción {plan} ha vencido.')
+              .replace('{plan}', oldPlan);
+            await createUserNotification(
+              sub.user._id,
+              'Tu suscripción ha vencido',
+              msg,
+              'empresa/plans',
+              null
+            )
+          }
         }
         console.log(`Trial expirado: sub ${sub._id}`)
       }
@@ -174,8 +189,49 @@ const subscriptionJob = (agenda) => {
         if (sub.user?._id) {
           await User.findByIdAndUpdate(sub.user._id, { suscription: 'free' })
           await SuscriptionChange.create({ user: sub.user._id, from: oldPlan, to: 'free' })
+
+          if (autoConfig?.premiumExpiredEnabled) {
+            const msg = (autoConfig.premiumExpiredMessage || 'Tu suscripción {plan} ha vencido.')
+              .replace('{plan}', oldPlan);
+            await createUserNotification(
+              sub.user._id,
+              'Tu suscripción ha vencido',
+              msg,
+              'empresa/plans',
+              null
+            )
+          }
         }
         console.log(`Suscripcion expirada: sub ${sub._id}`)
+      }
+
+      // Reminder: subscriptions about to expire
+      if (autoConfig?.premiumReminderEnabled) {
+        const reminderDays = autoConfig.premiumReminderDaysBefore || 3
+        const reminderDate = new Date()
+        reminderDate.setDate(reminderDate.getDate() + reminderDays)
+
+        const aboutToExpire = await Subscription.find({
+          status: 'active',
+          endDate: { $lte: reminderDate, $gt: now, $ne: null },
+          deletedAt: null,
+          mercadopagoSubscriptionId: null,
+        }).populate('user', '_id suscription')
+
+        for (const sub of aboutToExpire) {
+          if (!sub.user?._id) continue
+          const daysLeft = Math.ceil((sub.endDate - now) / (1000 * 60 * 60 * 24))
+          const msg = (autoConfig.premiumReminderMessage || 'Tu suscripción {plan} vence en {dias} días.')
+            .replace('{plan}', sub.plan)
+            .replace('{dias}', String(daysLeft))
+          await createUserNotification(
+            sub.user._id,
+            'Tu suscripción está por vencer',
+            msg,
+            'empresa/plans',
+            null
+          )
+        }
       }
     } catch (err) {
       console.error('Error en job expire_trials:', err.message)

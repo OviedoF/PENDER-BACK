@@ -42,6 +42,9 @@ const userSchema = new mongoose.Schema({
   // NOTIFICATIONS
   loginNotifications: { type: Boolean, default: false },
 
+  latitude: { type: Number, default: null },
+  longitude: { type: Number, default: null },
+
   deletedAt: { type: Date, default: null },
 
   // SESSION TRACKING

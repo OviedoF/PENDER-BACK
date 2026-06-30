@@ -6,6 +6,7 @@ import Subscription from '../models/Subscription.js'
 import Payment from '../models/Payment.js'
 import SuscriptionChange from '../models/SuscriptionChange.js'
 import ScheduledTrial from '../models/ScheduledTrial.js'
+import SystemConfig from '../models/SystemConfig.js'
 
 const MP_API = 'https://api.mercadopago.com'
 const mpHeaders = () => ({
@@ -13,7 +14,37 @@ const mpHeaders = () => ({
   'Content-Type': 'application/json',
 })
 
-const PLAN_PRICES = { free: 0, basic: 9.99, pro: 19.99 }
+const FALLBACK_PRICES = { free: 0, basic: 9.99, pro: 19.99 }
+
+async function getPlanPrices() {
+  const config = await SystemConfig.findOne({ key: 'global' })
+  if (!config || !config.premiumEnabled) return FALLBACK_PRICES
+  return {
+    free: 0,
+    basic: config.basicMonthlyPrice ?? FALLBACK_PRICES.basic,
+    pro: config.premiumMonthlyPrice ?? FALLBACK_PRICES.pro,
+  }
+}
+
+async function getPlanPricesByBilling() {
+  const config = await SystemConfig.findOne({ key: 'global' })
+  if (!config || !config.premiumEnabled) {
+    return {
+      basic: { monthly: FALLBACK_PRICES.basic, annual: FALLBACK_PRICES.basic * 10 },
+      pro:   { monthly: FALLBACK_PRICES.pro, annual: FALLBACK_PRICES.pro * 10 },
+    }
+  }
+  return {
+    basic: {
+      monthly: config.basicMonthlyPrice ?? FALLBACK_PRICES.basic,
+      annual: config.basicAnnualPrice ?? (config.basicMonthlyPrice ?? FALLBACK_PRICES.basic) * 10,
+    },
+    pro: {
+      monthly: config.premiumMonthlyPrice ?? FALLBACK_PRICES.pro,
+      annual: config.premiumAnnualPrice ?? (config.premiumMonthlyPrice ?? FALLBACK_PRICES.pro) * 10,
+    },
+  }
+}
 
 async function generateInvoiceNumber() {
   const year  = new Date().getFullYear()
@@ -32,10 +63,6 @@ async function verifyUser(req) {
 }
 
 const BILLING_MONTHS = { monthly: 1, annual: 12 }
-const PLAN_PRICES_MP = {
-  basic: { monthly: 9.99, annual: 9.99 * 10 },
-  pro:   { monthly: 19.99, annual: 19.99 * 10 },
-}
 
 // ─── IAP ──────────────────────────────────────────────────────────────────────
 
@@ -87,7 +114,7 @@ async function verifyAdmin(req) {
   if (!token) throw new Error('Token requerido')
   const decoded = jwt.verify(token, process.env.JWT_SECRET)
   const user = await User.findById(decoded.id)
-  if (!user || user.role !== 'admin') throw new Error('No autorizado')
+  if (!user || !['admin', 'moderator'].includes(user.role)) throw new Error('No autorizado')
   return user
 }
 
@@ -102,7 +129,7 @@ async function upsertSubscription(user, overrides = {}) {
       user:      user._id,
       plan:      overrides.plan      ?? user.suscription,
       status:    overrides.status    ?? (user.suscription === 'free' ? 'cancelled' : 'active'),
-      price:     overrides.price     ?? (PLAN_PRICES[user.suscription] ?? 0),
+      price:     overrides.price     ?? (FALLBACK_PRICES[user.suscription] ?? 0),
       startDate: overrides.startDate ?? user.createdAt,
       ...overrides,
     })
@@ -118,7 +145,7 @@ function syntheticSub(user) {
     plan:      user.suscription,
     status:    user.suscription === 'free' ? 'free' : 'active',
     startDate: user.createdAt,
-    price:     PLAN_PRICES[user.suscription] ?? 0,
+    price:     FALLBACK_PRICES[user.suscription] ?? 0,
     trialEnd:  null,
     cancelledAt: null,
     synthetic: true,
@@ -195,7 +222,8 @@ const SubscriptionController = {
     try {
       await verifyAdmin(req)
       const { plan, notes } = req.body
-      if (!PLAN_PRICES.hasOwnProperty(plan)) return res.status(400).json({ message: 'Plan invalido' })
+      const prices = await getPlanPrices()
+      if (!prices.hasOwnProperty(plan)) return res.status(400).json({ message: 'Plan invalido' })
 
       const user = await User.findById(req.params.userId)
       if (!user) return res.status(404).json({ message: 'Usuario no encontrado' })
@@ -207,7 +235,7 @@ const SubscriptionController = {
 
       const sub = await upsertSubscription(user, {
         plan,
-        price:       PLAN_PRICES[plan],
+        price:       prices[plan],
         status:      plan === 'free' ? 'cancelled' : 'active',
         cancelledAt: plan === 'free' ? new Date() : null,
         adminNotes:  notes ?? undefined,
@@ -249,12 +277,13 @@ const SubscriptionController = {
       const sub = await Subscription.findById(req.params.id).populate('user', '_id name email suscription')
       if (!sub) return res.status(404).json({ message: 'Suscripcion no encontrada' })
 
+      const prices = await getPlanPrices()
       const newPlan = req.body.plan ?? (sub.plan === 'free' ? 'basic' : sub.plan)
       const oldPlan = sub.user.suscription
 
       sub.plan          = newPlan
       sub.status        = 'active'
-      sub.price         = PLAN_PRICES[newPlan]
+      sub.price         = prices[newPlan]
       sub.reactivatedAt = new Date()
       sub.cancelledAt   = null
       sub.cancelAt      = null
@@ -361,6 +390,7 @@ const SubscriptionController = {
   async adminGetMetrics(req, res) {
     try {
       await verifyAdmin(req)
+      const prices = await getPlanPrices()
       const now = new Date()
       const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
 
@@ -370,7 +400,7 @@ const SubscriptionController = {
         User.countDocuments({ suscription: 'pro',   deletedAt: null }),
       ])
 
-      const mrr = basicCount * PLAN_PRICES.basic + proCount * PLAN_PRICES.pro
+      const mrr = basicCount * prices.basic + proCount * prices.pro
       const arr = mrr * 12
 
       // Churn: users who moved from paid → free this month
@@ -518,7 +548,8 @@ const SubscriptionController = {
       if (!['basic', 'pro'].includes(plan)) return res.status(400).json({ message: 'Plan invalido' })
       if (!['monthly', 'annual'].includes(billingCycle)) return res.status(400).json({ message: 'Ciclo invalido' })
 
-      const amount    = PLAN_PRICES_MP[plan][billingCycle]
+      const billingPrices = await getPlanPricesByBilling()
+      const amount    = billingPrices[plan][billingCycle]
       const frequency = BILLING_MONTHS[billingCycle]
 
       const { data } = await axios.post(
@@ -561,6 +592,8 @@ const SubscriptionController = {
         return res.status(400).json({ message: `Estado de suscripcion en MP: ${data.status}` })
       }
 
+      const prices = await getPlanPrices()
+      const billingPrices = await getPlanPricesByBilling()
       const { plan, billingCycle = 'monthly' } = JSON.parse(data.external_reference ?? '{}')
       const endDate = new Date()
       endDate.setMonth(endDate.getMonth() + BILLING_MONTHS[billingCycle])
@@ -570,7 +603,7 @@ const SubscriptionController = {
         plan,
         status:                    'active',
         billingCycle,
-        price:                     PLAN_PRICES[plan],
+        price:                     prices[plan],
         mercadopagoSubscriptionId: preapprovalId,
         startDate:                 new Date(),
         endDate,
@@ -584,7 +617,7 @@ const SubscriptionController = {
       await Payment.create({
         user:                 user._id,
         subscription:         sub._id,
-        amount:               PLAN_PRICES_MP[plan][billingCycle],
+        amount:               billingPrices[plan][billingCycle],
         currency:             'USD',
         status:               'approved',
         method:               'mercadopago',
@@ -663,6 +696,7 @@ const SubscriptionController = {
         return res.status(400).json({ message: 'platform debe ser ios o android' })
       }
 
+      const prices = await getPlanPrices()
       const endDate = new Date()
       endDate.setMonth(endDate.getMonth() + BILLING_MONTHS[billingCycle])
 
@@ -671,7 +705,7 @@ const SubscriptionController = {
         plan,
         status:      'active',
         billingCycle,
-        price:       PLAN_PRICES[plan],
+        price:       prices[plan],
         startDate:   new Date(),
         endDate,
         cancelledAt: null,
@@ -685,7 +719,7 @@ const SubscriptionController = {
       await Payment.create({
         user:          user._id,
         subscription:  sub._id,
-        amount:        PLAN_PRICES[plan],
+        amount:        prices[plan],
         currency:      'USD',
         status:        'approved',
         method:        'iap',
@@ -750,6 +784,7 @@ const SubscriptionController = {
         if (!sub) return
 
         if (preapproval.status === 'authorized') {
+          const prices = await getPlanPrices()
           const { billingCycle = 'monthly' } = JSON.parse(preapproval.external_reference ?? '{}')
           const endDate = new Date()
           endDate.setMonth(endDate.getMonth() + BILLING_MONTHS[billingCycle])
@@ -763,7 +798,7 @@ const SubscriptionController = {
           await Payment.create({
             user:                 sub.user._id,
             subscription:         sub._id,
-            amount:               PLAN_PRICES[sub.plan],
+            amount:               prices[sub.plan],
             currency:             'USD',
             status:               'approved',
             method:               'mercadopago',
@@ -791,5 +826,35 @@ const SubscriptionController = {
     }
   },
 }
+
+SubscriptionController.adminExportSubscriptions = async (req, res) => {
+    try {
+      await verifyAdmin(req)
+      const subscriptions = await Subscription.find({ deletedAt: null })
+        .populate('user', 'firstName lastName email commercialName')
+        .select('plan status price billingCycle startDate endDate trialEnd createdAt')
+        .sort({ createdAt: -1 })
+        .limit(5000)
+        .lean()
+      res.json({ subscriptions })
+    } catch (err) {
+      res.status(500).json({ error: err.message })
+    }
+  }
+
+SubscriptionController.adminExportPayments = async (req, res) => {
+    try {
+      await verifyAdmin(req)
+      const payments = await Payment.find()
+        .populate('user', 'firstName lastName email commercialName')
+        .select('invoiceNumber amount currency status method paidAt description createdAt')
+        .sort({ createdAt: -1 })
+        .limit(5000)
+        .lean()
+      res.json({ payments })
+    } catch (err) {
+      res.status(500).json({ error: err.message })
+    }
+  }
 
 export default SubscriptionController

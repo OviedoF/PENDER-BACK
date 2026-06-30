@@ -7,6 +7,9 @@ import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
 import createSystemNotification from '../utils/createSystemNotification.js';
 import createUserNotification from '../utils/createUserNotification.js';
+import { haversineKm } from '../utils/haversine.js';
+import sendGenericEmail from '../utils/sendGenericEmail.js';
+import agenda from '../config/agenda.js';
 dotenv.config();
 
 const sendRecoverySurvey = async (reporte) => {
@@ -14,22 +17,24 @@ const sendRecoverySurvey = async (reporte) => {
         const autoConfig = await AutomationConfig.findOne({ key: 'global' });
         if (!autoConfig || !autoConfig.surveyEnabled) return;
 
-        const message = autoConfig.surveyMessage.replace('{nombre}', reporte.nombre);
-        const delay = (autoConfig.surveyDelayMinutes || 0) * 60 * 1000;
+        const delayMinutes = autoConfig.surveyDelayMinutes || 0;
 
-        setTimeout(async () => {
-            try {
-                await createUserNotification(
-                    reporte.user,
-                    '¿Cómo fue tu experiencia?',
-                    message,
-                    'usuario/foundeMe/myReports',
-                    null
-                );
-            } catch (err) {
-                console.error('Error enviando encuesta post-recuperación:', err.message);
-            }
-        }, delay);
+        if (delayMinutes > 0) {
+            const runAt = new Date(Date.now() + delayMinutes * 60 * 1000);
+            await agenda.schedule(runAt, 'send_recovery_survey', {
+                userId: reporte.user.toString(),
+                petName: reporte.nombre,
+            });
+        } else {
+            const message = autoConfig.surveyMessage.replace('{nombre}', reporte.nombre);
+            await createUserNotification(
+                reporte.user,
+                '¿Cómo fue tu experiencia?',
+                message,
+                'usuario/foundeMe/myReports',
+                null
+            );
+        }
     } catch (err) {
         console.error('Error en sendRecoverySurvey:', err.message);
     }
@@ -54,15 +59,25 @@ const calculateMatchScore = (report, candidate, geoConfig) => {
         score += breedW * 0.5;
     }
 
-    if (report.departamento && candidate.departamento &&
-        report.departamento.toLowerCase() === candidate.departamento.toLowerCase()) {
-        score += locationW * 0.5;
-        if (report.ciudad && candidate.ciudad &&
-            report.ciudad.toLowerCase() === candidate.ciudad.toLowerCase()) {
-            score += locationW * 0.3;
-            if (report.distrito && candidate.distrito &&
-                report.distrito.toLowerCase() === candidate.distrito.toLowerCase()) {
-                score += locationW * 0.2;
+    const hasCoords = report.latitude && report.longitude && candidate.latitude && candidate.longitude;
+    if (hasCoords) {
+        const distKm = haversineKm(report.latitude, report.longitude, candidate.latitude, candidate.longitude);
+        const maxDist = geoConfig.matchingRadiusKm || 15;
+        if (distKm <= maxDist) {
+            const proximityRatio = 1 - (distKm / maxDist);
+            score += locationW * proximityRatio;
+        }
+    } else {
+        if (report.departamento && candidate.departamento &&
+            report.departamento.toLowerCase() === candidate.departamento.toLowerCase()) {
+            score += locationW * 0.5;
+            if (report.ciudad && candidate.ciudad &&
+                report.ciudad.toLowerCase() === candidate.ciudad.toLowerCase()) {
+                score += locationW * 0.3;
+                if (report.distrito && candidate.distrito &&
+                    report.distrito.toLowerCase() === candidate.distrito.toLowerCase()) {
+                    score += locationW * 0.2;
+                }
             }
         }
     }
@@ -117,6 +132,16 @@ FoundMeController.create = async (req, res) => {
       const matchingEnabled = geoConfig?.matchingEnabled !== false;
       const notifyEnabled = autoConfig?.matchingNotifyEnabled !== false;
 
+      const notifRadius = geoConfig?.notificationRadiusKm || 10;
+      const notifEnabled = geoConfig?.notificationEnabled !== false;
+      const hasCoords = foundMe.latitude && foundMe.longitude;
+
+      const tipoLabel = foundMe.tipo === 'reporte' ? 'extraviada' : 'en búsqueda';
+      const especieText = `${foundMe.especie}${foundMe.raza ? ' - ' + foundMe.raza : ''}`;
+      const zonaText = `${foundMe.distrito}, ${foundMe.ciudad}`;
+
+      const notifiedUsers = new Set();
+
       if (matchingEnabled) {
         const opposingTipo = foundMe.tipo === 'reporte' ? 'busqueda' : 'reporte';
         const daysWindow = geoConfig?.matchingDaysWindow || 30;
@@ -124,7 +149,7 @@ FoundMeController.create = async (req, res) => {
         const cutoffDate = new Date();
         cutoffDate.setDate(cutoffDate.getDate() - daysWindow);
 
-        const candidates = await FindMe.find({
+        const allCandidates = await FindMe.find({
           _id: { $ne: foundMe._id },
           deletedAt: null,
           finished: false,
@@ -132,11 +157,13 @@ FoundMeController.create = async (req, res) => {
           createdAt: { $gte: cutoffDate },
         });
 
-        const tipoLabel = foundMe.tipo === 'reporte' ? 'extraviada' : 'en búsqueda';
-        const especieText = `${foundMe.especie}${foundMe.raza ? ' - ' + foundMe.raza : ''}`;
-        const zonaText = `${foundMe.distrito}, ${foundMe.ciudad}`;
+        const candidates = hasCoords && notifEnabled
+          ? allCandidates.filter(c => {
+              if (!c.latitude || !c.longitude) return true;
+              return haversineKm(foundMe.latitude, foundMe.longitude, c.latitude, c.longitude) <= notifRadius;
+            })
+          : allCandidates;
 
-        const notifiedUsers = new Set();
         let matchCount = 0;
 
         for (const candidate of candidates) {
@@ -162,6 +189,19 @@ FoundMeController.create = async (req, res) => {
               'usuario/foundeMe/lossPet',
               { id: foundMe._id.toString() }
             );
+
+            try {
+              const candidateUser = await User.findById(candidate.user).select('email firstName');
+              if (candidateUser?.email) {
+                await sendGenericEmail({
+                  to: candidateUser.email,
+                  subject: `Posible coincidencia con tu mascota`,
+                  body: `Hola ${candidateUser.firstName || ''},<br><br>${message}<br><br>Ingresa a Petnder para ver los detalles de la coincidencia.`,
+                });
+              }
+            } catch (emailErr) {
+              console.error('Error enviando email de matching:', emailErr.message);
+            }
           }
         }
 
@@ -169,6 +209,41 @@ FoundMeController.create = async (req, res) => {
           await createSystemNotification({
             title: `Mascota ${tipoLabel} en ${foundMe.departamento}`,
             text: `Se reportó ${foundMe.nombre} (${especieText}) en ${zonaText}. ${matchCount} coincidencia(s) encontrada(s), se notificó a ${notifiedUsers.size} usuario(s).`,
+          });
+        }
+      }
+
+      // Notificar a usuarios cercanos (por su ubicación guardada)
+      if (hasCoords && notifEnabled) {
+        const nearbyUsers = await User.find({
+          _id: { $ne: user._id },
+          deletedAt: null,
+          latitude: { $ne: null },
+          longitude: { $ne: null },
+        }).select('_id latitude longitude');
+
+        let nearbyCount = 0;
+        for (const nearUser of nearbyUsers) {
+          if (notifiedUsers.has(nearUser._id.toString())) continue;
+          const dist = haversineKm(foundMe.latitude, foundMe.longitude, nearUser.latitude, nearUser.longitude);
+          if (dist > notifRadius) continue;
+
+          notifiedUsers.add(nearUser._id.toString());
+          nearbyCount++;
+
+          await createUserNotification(
+            nearUser._id,
+            `Mascota ${tipoLabel} cerca de ti`,
+            `${foundMe.nombre} (${especieText}) fue reportada en ${zonaText}, a ${Math.round(dist)} km de tu ubicación.`,
+            'usuario/foundeMe/lossPet',
+            { id: foundMe._id.toString() }
+          );
+        }
+
+        if (nearbyCount > 0) {
+          await createSystemNotification({
+            title: `Alerta de zona: ${foundMe.departamento}`,
+            text: `Se notificó a ${nearbyCount} usuario(s) cercanos sobre ${foundMe.nombre} (${especieText}) en ${zonaText}.`,
           });
         }
       }
@@ -645,6 +720,21 @@ FoundMeController.adminSendZoneNotification = async (req, res) => {
             message: `Notificacion enviada a ${notifiedUsers.size} usuario(s) con reportes activos en ${zona}`,
             notified: notifiedUsers.size,
         });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+FoundMeController.adminExport = async (req, res) => {
+    try {
+        await verifyAdmin(req);
+        const reports = await FindMe.find()
+            .populate('user', 'firstName lastName email')
+            .select('nombre especie raza tipo ciudad departamento finished createdAt location')
+            .sort({ createdAt: -1 })
+            .limit(5000)
+            .lean();
+        res.json({ reports });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }

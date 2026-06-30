@@ -141,6 +141,23 @@ authController.updateUser = async (req, res) => {
   }
 };
 
+authController.updateLocation = async (req, res) => {
+  try {
+    const token = req.headers.authorization.split(" ")[1];
+    const payload = jwt.verify(token, process.env.JWT_SECRET);
+
+    const { latitude, longitude } = req.body;
+    if (typeof latitude !== 'number' || typeof longitude !== 'number') {
+      return res.status(400).json({ error: "Coordenadas invalidas" });
+    }
+
+    await User.findByIdAndUpdate(payload.id, { latitude, longitude });
+    res.status(200).json({ message: "Ubicacion actualizada" });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
 authController.registerEnterprise = async (req, res) => {
   try {
     const email = req.body.email;
@@ -258,7 +275,8 @@ authController.login = async (req, res) => {
           user: user._id,
           date: date || new Date(),
           device: `${deviceOs} | (${device})` || "Desconocido",
-          status: 'failed'
+          status: 'failed',
+          ip: req.ip || req.headers['x-forwarded-for'] || null
         });
 
         await login.save();
@@ -276,7 +294,8 @@ authController.login = async (req, res) => {
         user: user._id,
         date: date || new Date(),
         device: device || deviceOs || "Desconocido",
-        status: 'connected'
+        status: 'connected',
+        ip: req.ip || req.headers['x-forwarded-for'] || null
       });
 
       await login.save();
@@ -344,7 +363,7 @@ authController.whoIam = async (req, res) => {
   try {
     const token = req.headers.authorization.split(" ")[1];
     const payload = jwt.verify(token, process.env.JWT_SECRET);
-    const user = await User.findById(payload.id);
+    const user = await User.findById(payload.id).populate('adminRole');
     const unreadNotifications = await Notification.countDocuments({ user: user._id, readed: false });
     const unreadMessages = await Message.countDocuments({
       participants: { $in: [user._id] },

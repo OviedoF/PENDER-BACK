@@ -1,19 +1,24 @@
 import { Router } from 'express';
 import ForumController from '../controllers/forum.controller.js';
+import { requirePermission } from '../middlewares/roleMiddleware.js';
 import upload from '../config/multer.config.js';
 
 const router = Router();
 
+const viewComunidad = requirePermission('comunidad', 'view');
+const moderateComunidad = requirePermission('comunidad', 'moderate');
+const deleteComunidad = requirePermission('comunidad', 'delete');
+
 // ─── ADMIN (before /:id to avoid capture) ────────────────────────────────────
-router.get('/admin/all',                   ForumController.adminGetAll);
-router.get('/admin/:id/comments',          ForumController.adminGetComments);
-router.get('/admin/:id',                   ForumController.getById);
-router.put('/admin/:id/close',             ForumController.adminToggleClosed);
-router.put('/admin/:id/pin',               ForumController.adminTogglePinned);
-router.get('/admin/reported-comments',      ForumController.adminGetReportedComments);
-router.put('/admin/comment/:id/dismiss',    ForumController.adminDismissReports);
-router.delete('/admin/comment/:commentId', ForumController.adminDeleteComment);
-router.delete('/admin/:id',                ForumController.adminDelete);
+router.get('/admin/all',                   viewComunidad,      ForumController.adminGetAll);
+router.get('/admin/reported-comments',      viewComunidad,      ForumController.adminGetReportedComments);
+router.get('/admin/:id/comments',          viewComunidad,      ForumController.adminGetComments);
+router.get('/admin/:id',                   viewComunidad,      ForumController.getById);
+router.put('/admin/:id/close',             moderateComunidad,  ForumController.adminToggleClosed);
+router.put('/admin/:id/pin',               moderateComunidad,  ForumController.adminTogglePinned);
+router.put('/admin/comment/:id/dismiss',    moderateComunidad,  ForumController.adminDismissReports);
+router.delete('/admin/comment/:commentId', deleteComunidad,    ForumController.adminDeleteComment);
+router.delete('/admin/:id',                deleteComunidad,    ForumController.adminDelete);
 
 // ─── PUBLIC ───────────────────────────────────────────────────────────────────
 router.post('/comment/:id/report',         ForumController.reportComment);

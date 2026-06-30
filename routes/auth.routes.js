@@ -2,7 +2,7 @@
 import express from 'express';
 import authController from '../controllers/authController.js';
 import upload from '../config/multer.config.js'; // Configuración de Multer
-import { onlyAdmin } from '../middlewares/roleMiddleware.js';
+import { requirePermission } from '../middlewares/roleMiddleware.js';
 
 const router = express.Router();
 
@@ -15,6 +15,7 @@ router.delete('/notification/:id', authController.deleteNotification);
 router.post('/social-login', authController.socialLogin);
 router.post("/register", upload.single('image'), authController.register);
 router.post("/update", upload.single('image'), authController.updateUser);
+router.post("/update-location", authController.updateLocation);
 router.post("/register-enterprise", upload.fields([
     { name: "image", maxCount: 1 },  // 📌 Campo para una imagen principal
     { name: "images", maxCount: 9 }, // 📌 Campo para imágenes adicionales
@@ -34,29 +35,40 @@ router.get('/bank-accounts', authController.getBankAccounts);
 router.put('/add-bank', authController.saveBankAccount);
 router.delete('/delete-bank/:bankId', authController.deleteBankAccount);
 
-router.get('/users', onlyAdmin, authController.getUsersAdmin);
-router.get('/users/export', onlyAdmin, authController.exportUsersAdmin);
+// ─── ADMIN: Usuarios ─────────────────────────────────────────────────────────
+const viewUsuarios = requirePermission('usuarios', 'view');
+const editUsuarios = requirePermission('usuarios', 'edit');
+const suspendUsuarios = requirePermission('usuarios', 'suspend');
+const deleteUsuarios = requirePermission('usuarios', 'delete');
 
-router.get('/users/:id', onlyAdmin, authController.getUserProfile);
-router.put('/users/:id', onlyAdmin, authController.adminUpdateUser);
-router.get('/users/:id/activity', onlyAdmin, authController.getUserActivity);
-router.get('/users/:id/reports', onlyAdmin, authController.getUserReports);
-router.put('/users/:id/role', onlyAdmin, authController.updateUserRole);
-router.put('/users/:id/suspend', onlyAdmin, authController.suspendUser);
-router.put('/users/:id/ban', onlyAdmin, authController.banUser);
-router.put('/users/:id/reset-password', onlyAdmin, authController.resetUserPassword);
-router.put('/users/:id/verify', onlyAdmin, authController.verifyUser);
+router.get('/users', viewUsuarios, authController.getUsersAdmin);
+router.get('/users/export', viewUsuarios, authController.exportUsersAdmin);
+router.get('/users/:id', viewUsuarios, authController.getUserProfile);
+router.get('/users/:id/activity', viewUsuarios, authController.getUserActivity);
+router.get('/users/:id/reports', viewUsuarios, authController.getUserReports);
+router.put('/users/:id', editUsuarios, authController.adminUpdateUser);
+router.put('/users/:id/role', editUsuarios, authController.updateUserRole);
+router.put('/users/:id/suspend', suspendUsuarios, authController.suspendUser);
+router.put('/users/:id/ban', suspendUsuarios, authController.banUser);
+router.put('/users/:id/reset-password', editUsuarios, authController.resetUserPassword);
+router.put('/users/:id/verify', editUsuarios, authController.verifyUser);
 
-router.put('/enterprises/bulk-disable', onlyAdmin, authController.bulkDisableEnterprises);
-router.get('/enterprises', onlyAdmin, authController.getEnterprisesAdmin);
-router.get('/enterprises/export', onlyAdmin, authController.exportEnterprisesAdmin);
-router.get('/enterprises/pending', onlyAdmin, authController.getPendingEnterprises);
-router.put('/enterprises/:id/approve', onlyAdmin, authController.approveEnterprise);
-router.put('/enterprises/:id/deny', onlyAdmin, authController.denyEnterprise);
-router.put('/enterprises/:id/featured', onlyAdmin, authController.toggleFeaturedEnterprise);
-router.put('/enterprises/:id/priority', onlyAdmin, authController.setEnterprisePriority);
-router.put('/enterprises/:id/active', onlyAdmin, authController.toggleEnterpriseActive);
-router.get('/enterprises/:id/metrics', onlyAdmin, authController.getEnterpriseMetrics);
-router.get('/enterprises/:id/history', onlyAdmin, authController.getEnterpriseHistory);
+// ─── ADMIN: Empresas ─────────────────────────────────────────────────────────
+const viewEmpresas = requirePermission('empresas', 'view');
+const editEmpresas = requirePermission('empresas', 'edit');
+const approveEmpresas = requirePermission('empresas', 'approve');
+const deleteEmpresas = requirePermission('empresas', 'delete');
+
+router.get('/enterprises', viewEmpresas, authController.getEnterprisesAdmin);
+router.get('/enterprises/export', viewEmpresas, authController.exportEnterprisesAdmin);
+router.get('/enterprises/pending', viewEmpresas, authController.getPendingEnterprises);
+router.get('/enterprises/:id/metrics', viewEmpresas, authController.getEnterpriseMetrics);
+router.get('/enterprises/:id/history', viewEmpresas, authController.getEnterpriseHistory);
+router.put('/enterprises/bulk-disable', deleteEmpresas, authController.bulkDisableEnterprises);
+router.put('/enterprises/:id/approve', approveEmpresas, authController.approveEnterprise);
+router.put('/enterprises/:id/deny', approveEmpresas, authController.denyEnterprise);
+router.put('/enterprises/:id/featured', editEmpresas, authController.toggleFeaturedEnterprise);
+router.put('/enterprises/:id/priority', editEmpresas, authController.setEnterprisePriority);
+router.put('/enterprises/:id/active', editEmpresas, authController.toggleEnterpriseActive);
 
 export default router;

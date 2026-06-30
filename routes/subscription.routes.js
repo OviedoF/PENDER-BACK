@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import SubscriptionController from '../controllers/subscription.controller.js'
+import { requirePermission } from '../middlewares/roleMiddleware.js'
 
 const router = Router()
 
@@ -12,16 +13,21 @@ router.post('/',        SubscriptionController.createSubscription)
 router.post('/verify',  SubscriptionController.verifySubscription)
 
 // ─── ADMIN ────────────────────────────────────────────────────────────────────
-router.get('/admin/all',                    SubscriptionController.adminGetAll)
-router.get('/admin/metrics',               SubscriptionController.adminGetMetrics)
-router.get('/admin/payments',              SubscriptionController.adminGetPayments)
-router.put('/admin/payments/:id/status',   SubscriptionController.adminUpdatePaymentStatus)
-router.get('/admin/payments/:id/invoice',  SubscriptionController.adminGetInvoice)
-router.get('/admin/:userId/detail',        SubscriptionController.adminGetByUser)
-router.put('/admin/:userId/plan',          SubscriptionController.adminChangePlan)
-router.post('/admin/:userId/trial',        SubscriptionController.adminActivateTrial)
-router.put('/admin/:id/cancel',            SubscriptionController.adminCancel)
-router.put('/admin/:id/reactivate',        SubscriptionController.adminReactivate)
+const view = requirePermission('suscripciones', 'view')
+const manage = requirePermission('suscripciones', 'manage')
+
+router.get('/admin/export/subscriptions',   view,   SubscriptionController.adminExportSubscriptions)
+router.get('/admin/export/payments',       view,   SubscriptionController.adminExportPayments)
+router.get('/admin/all',                    view,   SubscriptionController.adminGetAll)
+router.get('/admin/metrics',               view,   SubscriptionController.adminGetMetrics)
+router.get('/admin/payments',              view,   SubscriptionController.adminGetPayments)
+router.get('/admin/payments/:id/invoice',  view,   SubscriptionController.adminGetInvoice)
+router.get('/admin/:userId/detail',        view,   SubscriptionController.adminGetByUser)
+router.put('/admin/payments/:id/status',   manage, SubscriptionController.adminUpdatePaymentStatus)
+router.put('/admin/:userId/plan',          manage, SubscriptionController.adminChangePlan)
+router.post('/admin/:userId/trial',        manage, SubscriptionController.adminActivateTrial)
+router.put('/admin/:id/cancel',            manage, SubscriptionController.adminCancel)
+router.put('/admin/:id/reactivate',        manage, SubscriptionController.adminReactivate)
 
 // ─── WEBHOOK ──────────────────────────────────────────────────────────────────
 router.post('/webhook/mercadopago',        SubscriptionController.mercadopagoWebhook)

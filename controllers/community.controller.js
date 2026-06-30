@@ -450,7 +450,7 @@ const verifyAdmin = async (req) => {
     const token = req.headers.authorization.split(' ')[1];
     const payload = jwt.verify(token, process.env.JWT_SECRET);
     const user = await User.findOne({ _id: payload.id });
-    if (!user || user.role !== 'admin') throw new Error('No tienes permisos de administrador');
+    if (!user || !['admin', 'moderator'].includes(user.role)) throw new Error('No tienes permisos de administrador');
     return user;
 };
 
@@ -760,6 +760,21 @@ CommunityController.adminDismissReports = async (req, res) => {
         );
         if (!comment) return res.status(404).json({ message: 'Comentario no encontrado' });
         res.status(200).json({ message: 'Reportes descartados' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+CommunityController.adminExport = async (req, res) => {
+    try {
+        await verifyAdmin(req);
+        const communities = await Community.find()
+            .populate('owner', 'firstName lastName email')
+            .select('nombre descripcion membersCount isOfficial featured createdAt')
+            .sort({ createdAt: -1 })
+            .limit(5000)
+            .lean();
+        res.json({ communities });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }

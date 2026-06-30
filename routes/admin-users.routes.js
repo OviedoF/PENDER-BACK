@@ -1,18 +1,22 @@
 import { Router } from 'express';
 import AdminUsersController from '../controllers/admin-users.controller.js';
+import { requirePermission } from '../middlewares/roleMiddleware.js';
 
 const router = Router();
 
+const viewAdmin = requirePermission('adminUsuarios', 'view');
+const manageAdmin = requirePermission('adminUsuarios', 'manage');
+
 // Roles
-router.get('/roles',       AdminUsersController.getRoles);
-router.post('/roles',      AdminUsersController.createRole);
-router.put('/roles/:id',   AdminUsersController.updateRole);
-router.delete('/roles/:id', AdminUsersController.deleteRole);
+router.get('/roles',       viewAdmin,   AdminUsersController.getRoles);
+router.post('/roles',      manageAdmin, AdminUsersController.createRole);
+router.put('/roles/:id',   manageAdmin, AdminUsersController.updateRole);
+router.delete('/roles/:id', manageAdmin, AdminUsersController.deleteRole);
 
 // Admin users
-router.get('/users',       AdminUsersController.getAdminUsers);
-router.post('/users',      AdminUsersController.createAdminUser);
-router.put('/users/:id',   AdminUsersController.updateAdminUser);
-router.delete('/users/:id', AdminUsersController.deleteAdminUser);
+router.get('/users',       viewAdmin,   AdminUsersController.getAdminUsers);
+router.post('/users',      manageAdmin, AdminUsersController.createAdminUser);
+router.put('/users/:id',   manageAdmin, AdminUsersController.updateAdminUser);
+router.delete('/users/:id', manageAdmin, AdminUsersController.deleteAdminUser);
 
 export default router;

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import FindMeController from '../controllers/FindMe.controller.js';
+import { requirePermission } from '../middlewares/roleMiddleware.js';
 import upload from '../config/multer.config.js' // Multer config
 
 const router = Router();
@@ -25,16 +26,21 @@ FindMeController.update);
 router.delete('/:id', FindMeController.delete);
 
 // ─── ADMIN ROUTES ─────────────────────────────────────────────────────────────
+const viewMascotas = requirePermission('mascotas', 'view');
+const editMascotas = requirePermission('mascotas', 'edit');
+const deleteMascotas = requirePermission('mascotas', 'delete');
+
 // Specific routes must come before parameterized (/admin/:id)
-router.get('/admin/all', FindMeController.adminGetAll);
-router.post('/admin/merge', FindMeController.adminMerge);
-router.get('/admin/matches/:id', FindMeController.adminGetMatches);
-router.get('/admin/zones', FindMeController.adminGetZoneConfigs);
-router.put('/admin/zones', FindMeController.adminUpsertZoneConfig);
-router.post('/admin/zones/notify', FindMeController.adminSendZoneNotification);
-router.get('/admin/:id', FindMeController.adminGetById);
-router.put('/admin/:id/status', FindMeController.adminUpdateStatus);
-router.delete('/admin/:id', FindMeController.adminDelete);
-router.post('/admin/:id/notify', FindMeController.adminSendNotification);
+router.get('/admin/export', viewMascotas, FindMeController.adminExport);
+router.get('/admin/all', viewMascotas, FindMeController.adminGetAll);
+router.get('/admin/matches/:id', viewMascotas, FindMeController.adminGetMatches);
+router.get('/admin/zones', viewMascotas, FindMeController.adminGetZoneConfigs);
+router.get('/admin/:id', viewMascotas, FindMeController.adminGetById);
+router.post('/admin/merge', editMascotas, FindMeController.adminMerge);
+router.put('/admin/zones', editMascotas, FindMeController.adminUpsertZoneConfig);
+router.post('/admin/zones/notify', editMascotas, FindMeController.adminSendZoneNotification);
+router.put('/admin/:id/status', editMascotas, FindMeController.adminUpdateStatus);
+router.delete('/admin/:id', deleteMascotas, FindMeController.adminDelete);
+router.post('/admin/:id/notify', editMascotas, FindMeController.adminSendNotification);
 
 export default router;

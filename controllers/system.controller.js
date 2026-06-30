@@ -10,7 +10,7 @@ const verifyAdmin = async (req) => {
     const token = req.headers.authorization.split(' ')[1];
     const payload = jwt.verify(token, process.env.JWT_SECRET);
     const user = await User.findOne({ _id: payload.id });
-    if (!user || user.role !== 'admin') throw new Error('No tienes permisos de administrador');
+    if (!user || !['admin', 'moderator'].includes(user.role)) throw new Error('No tienes permisos de administrador');
     return user;
 };
 
@@ -36,6 +36,7 @@ SystemController.updateConfig = async (req, res) => {
             termsAndConditions, privacyPolicy,
             commissionEnabled, commissionPercentage, commissionFixedFee,
             premiumEnabled, premiumMonthlyPrice, premiumAnnualPrice, premiumTrialDays,
+            basicMonthlyPrice, basicAnnualPrice,
             taxEnabled, taxPercentage, taxName,
             currency, currencySymbol,
             defaultLanguage, availableLanguages,
@@ -52,6 +53,8 @@ SystemController.updateConfig = async (req, res) => {
         if (premiumMonthlyPrice !== undefined) update.premiumMonthlyPrice = premiumMonthlyPrice;
         if (premiumAnnualPrice !== undefined) update.premiumAnnualPrice = premiumAnnualPrice;
         if (premiumTrialDays !== undefined) update.premiumTrialDays = premiumTrialDays;
+        if (basicMonthlyPrice !== undefined) update.basicMonthlyPrice = basicMonthlyPrice;
+        if (basicAnnualPrice !== undefined) update.basicAnnualPrice = basicAnnualPrice;
         if (taxEnabled !== undefined) update.taxEnabled = taxEnabled;
         if (taxPercentage !== undefined) update.taxPercentage = taxPercentage;
         if (taxName !== undefined) update.taxName = taxName;
@@ -92,6 +95,8 @@ SystemController.getPublicConfig = async (req, res) => {
             premiumMonthlyPrice: config.premiumMonthlyPrice,
             premiumAnnualPrice: config.premiumAnnualPrice,
             premiumTrialDays: config.premiumTrialDays,
+            basicMonthlyPrice: config.basicMonthlyPrice,
+            basicAnnualPrice: config.basicAnnualPrice,
             taxEnabled: config.taxEnabled,
             taxPercentage: config.taxPercentage,
             taxName: config.taxName,

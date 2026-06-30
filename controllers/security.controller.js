@@ -15,7 +15,7 @@ const verifyAdmin = async (req) => {
     const token = req.headers.authorization.split(' ')[1];
     const payload = jwt.verify(token, process.env.JWT_SECRET);
     const user = await User.findOne({ _id: payload.id });
-    if (!user || user.role !== 'admin') throw new Error('No tienes permisos de administrador');
+    if (!user || !['admin', 'moderator'].includes(user.role)) throw new Error('No tienes permisos de administrador');
     return user;
 };
 
@@ -496,7 +496,42 @@ SecurityController.adminDetectSpam = async (req, res) => {
             })),
         ].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
-        res.status(200).json({ rapidPosters, duplicateContent, spamReported });
+        const suspiciousPattern = /(https?:\/\/[^\s]+|www\.[^\s]+|[\w.+-]+@[\w-]+\.[\w.]+|\+?\d[\d\s\-]{7,})/i;
+
+        const suspiciousCommunity = await CommunityComment.find({
+            deletedAt: null,
+            comment: { $regex: suspiciousPattern },
+        })
+            .populate('user', 'firstName lastName email')
+            .sort({ createdAt: -1 })
+            .limit(20);
+
+        const suspiciousForum = await ForumComment.find({
+            deletedAt: null,
+            comment: { $regex: suspiciousPattern },
+        })
+            .populate('user', 'firstName lastName email')
+            .sort({ createdAt: -1 })
+            .limit(20);
+
+        const suspiciousContent = [
+            ...suspiciousCommunity.map(c => ({
+                _id: c._id,
+                source: 'community',
+                content: c.comment.substring(0, 150),
+                user: c.user,
+                createdAt: c.createdAt,
+            })),
+            ...suspiciousForum.map(f => ({
+                _id: f._id,
+                source: 'forum',
+                content: f.comment.substring(0, 150),
+                user: f.user,
+                createdAt: f.createdAt,
+            })),
+        ].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+        res.status(200).json({ rapidPosters, duplicateContent, spamReported, suspiciousContent });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -520,6 +555,62 @@ SecurityController.adminRemoveSpam = async (req, res) => {
         await logActivity(admin._id, 'admin', 'remove_spam', 'comment', commentId, comment.comment?.substring(0, 50) || '', `Eliminado como spam (${source || 'community'})`, req.ip);
 
         res.status(200).json({ message: 'Spam eliminado correctamente' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// ─── ADMIN: IP Recommendations ──────────────────────────────────────────────
+
+SecurityController.adminGetIpRecommendations = async (req, res) => {
+    try {
+        await verifyAdmin(req);
+
+        const reportedUserIds = await Report.aggregate([
+            { $match: { status: { $in: ['pending', 'reviewing', 'resolved'] } } },
+            { $group: { _id: '$reportedEntity', reportCount: { $sum: 1 } } },
+            { $match: { reportCount: { $gte: 2 } } },
+            { $sort: { reportCount: -1 } },
+            { $limit: 20 },
+        ]);
+
+        const userIds = reportedUserIds.map(r => r._id);
+        const Login = (await import('../models/Login.js')).default;
+
+        const logins = await Login.find({
+            user: { $in: userIds },
+            ip: { $ne: null },
+        })
+            .populate('user', 'firstName lastName email')
+            .sort({ createdAt: -1 });
+
+        const ipMap = {};
+        for (const login of logins) {
+            if (!login.ip) continue;
+            const key = login.ip;
+            if (!ipMap[key]) {
+                ipMap[key] = { ip: key, users: [], loginCount: 0 };
+            }
+            ipMap[key].loginCount++;
+            const userId = login.user?._id?.toString();
+            if (userId && !ipMap[key].users.some(u => u._id?.toString() === userId)) {
+                const reportData = reportedUserIds.find(r => r._id.toString() === userId);
+                ipMap[key].users.push({
+                    ...login.user.toObject(),
+                    reportCount: reportData?.reportCount || 0,
+                });
+            }
+        }
+
+        const existingBlacklist = await IpBlacklist.find({ active: true }, 'ip');
+        const blacklistedIps = new Set(existingBlacklist.map(b => b.ip));
+
+        const recommendations = Object.values(ipMap)
+            .filter(r => !blacklistedIps.has(r.ip))
+            .sort((a, b) => b.users.reduce((s, u) => s + u.reportCount, 0) - a.users.reduce((s, u) => s + u.reportCount, 0))
+            .slice(0, 10);
+
+        res.status(200).json({ recommendations });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -667,6 +758,22 @@ SecurityController.adminGetLogsStats = async (req, res) => {
         ]);
 
         res.status(200).json({ todayCount, weekCount, byAction });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+SecurityController.adminExport = async (req, res) => {
+    try {
+        await verifyAdmin(req);
+        const reports = await Report.find()
+            .populate('reporter', 'firstName lastName email')
+            .populate('reported', 'firstName lastName email commercialName')
+            .select('type reason status resolution createdAt resolvedAt')
+            .sort({ createdAt: -1 })
+            .limit(5000)
+            .lean();
+        res.json({ reports });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }

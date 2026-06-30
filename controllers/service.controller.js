@@ -8,6 +8,8 @@ import dotenv from 'dotenv';
 import { Types } from 'mongoose';
 import createUserNotification from '../utils/createUserNotification.js';
 import featuredRequest from "../models/FeaturedRequest.js";
+import GeoConfig from '../models/GeoConfig.js';
+import { haversineKm } from '../utils/haversine.js';
 dotenv.config();
 import fs from 'fs';
 import path from 'path';
@@ -92,10 +94,8 @@ ServiceController.getByUser = async (req, res) => {
 // Obtener todos los servicios
 ServiceController.getAll = async (req, res) => {
     try {
-        const { search, category, tag } = req.query;
-        console.log("Query params:", req.query);
+        const { search, category, tag, userLat, userLng } = req.query;
 
-        // Filtro base (solo servicios no eliminados)
         const filter = { deletedAt: null, oculto: false };
 
         // Buscar por nombre si hay "search"
@@ -167,17 +167,47 @@ ServiceController.getAll = async (req, res) => {
             ...approved.map((s) => s._id.toString()),
         ]);
 
-        const regular = allServices
-            .filter((s) => !excludedIds.has(s._id.toString()))
-            .sort((a, b) => {
-                const aFeatured = a.user?.featured ? 1 : 0;
-                const bFeatured = b.user?.featured ? 1 : 0;
-                if (bFeatured !== aFeatured) return bFeatured - aFeatured;
-                const aPriority = a.user?.priority ?? 50;
-                const bPriority = b.user?.priority ?? 50;
-                if (aPriority !== bPriority) return aPriority - bPriority;
-                return (b.score ?? 0) - (a.score ?? 0);
-            });
+        let regular = allServices.filter((s) => !excludedIds.has(s._id.toString()));
+
+        const lat = parseFloat(userLat);
+        const lng = parseFloat(userLng);
+        const hasUserLocation = !isNaN(lat) && !isNaN(lng);
+        let geoConfig = null;
+
+        if (hasUserLocation) {
+            geoConfig = await GeoConfig.findOne({ key: 'global' });
+        }
+
+        const useProximity = hasUserLocation && geoConfig?.proximityEnabled !== false;
+        const proxWeight = geoConfig?.proximityWeight ?? 0.7;
+        const maxDist = geoConfig?.proximityMaxDistanceKm ?? 50;
+
+        regular.sort((a, b) => {
+            const aFeatured = a.user?.featured ? 1 : 0;
+            const bFeatured = b.user?.featured ? 1 : 0;
+            if (bFeatured !== aFeatured) return bFeatured - aFeatured;
+            const aPriority = a.user?.priority ?? 50;
+            const bPriority = b.user?.priority ?? 50;
+            if (aPriority !== bPriority) return aPriority - bPriority;
+
+            if (useProximity) {
+                const aHasGeo = a.latitude && a.longitude;
+                const bHasGeo = b.latitude && b.longitude;
+                if (aHasGeo || bHasGeo) {
+                    const aDist = aHasGeo ? haversineKm(lat, lng, a.latitude, a.longitude) : maxDist;
+                    const bDist = bHasGeo ? haversineKm(lat, lng, b.latitude, b.longitude) : maxDist;
+                    const aProxScore = Math.max(0, 1 - aDist / maxDist);
+                    const bProxScore = Math.max(0, 1 - bDist / maxDist);
+                    const aBaseScore = (a.score ?? 0) / 100;
+                    const bBaseScore = (b.score ?? 0) / 100;
+                    const aFinal = proxWeight * aProxScore + (1 - proxWeight) * aBaseScore;
+                    const bFinal = proxWeight * bProxScore + (1 - proxWeight) * bBaseScore;
+                    if (Math.abs(aFinal - bFinal) > 0.01) return bFinal - aFinal;
+                }
+            }
+
+            return (b.score ?? 0) - (a.score ?? 0);
+        });
 
         return res.status(200).json({ premium, approved, regular });
     } catch (error) {

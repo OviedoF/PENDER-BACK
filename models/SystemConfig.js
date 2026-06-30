@@ -14,9 +14,11 @@ const SystemConfigSchema = new mongoose.Schema({
 
     // Tarifas premium
     premiumEnabled: { type: Boolean, default: true },
-    premiumMonthlyPrice: { type: Number, default: 29.90 },
-    premiumAnnualPrice: { type: Number, default: 299.90 },
+    premiumMonthlyPrice: { type: Number, default: 19.99 },
+    premiumAnnualPrice: { type: Number, default: 199.90 },
     premiumTrialDays: { type: Number, default: 7 },
+    basicMonthlyPrice: { type: Number, default: 9.99 },
+    basicAnnualPrice: { type: Number, default: 99.90 },
 
     // Impuestos
     taxEnabled: { type: Boolean, default: true },

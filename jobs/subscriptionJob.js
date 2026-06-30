@@ -5,11 +5,23 @@ import Payment from '../models/Payment.js'
 import SuscriptionChange from '../models/SuscriptionChange.js'
 import ScheduledTrial from '../models/ScheduledTrial.js'
 import AutomationConfig from '../models/AutomationConfig.js'
+import SystemConfig from '../models/SystemConfig.js'
 import createUserNotification from '../utils/createUserNotification.js'
+import sendGenericEmail from '../utils/sendGenericEmail.js'
 
 const MP_API = 'https://api.mercadopago.com'
-const PLAN_PRICES = { free: 0, basic: 9.99, pro: 19.99 }
+const FALLBACK_PRICES = { free: 0, basic: 9.99, pro: 19.99 }
 const BILLING_MONTHS = { monthly: 1, annual: 12 }
+
+async function getPlanPrices() {
+  const config = await SystemConfig.findOne({ key: 'global' })
+  if (!config || !config.premiumEnabled) return FALLBACK_PRICES
+  return {
+    free: 0,
+    basic: config.basicMonthlyPrice ?? FALLBACK_PRICES.basic,
+    pro: config.premiumMonthlyPrice ?? FALLBACK_PRICES.pro,
+  }
+}
 
 const subscriptionJob = (agenda) => {
 
@@ -34,6 +46,7 @@ const subscriptionJob = (agenda) => {
           if (data.status === 'authorized') {
             // Si ya venció el endDate, es una renovación
             if (sub.endDate && new Date() >= sub.endDate) {
+              const prices = await getPlanPrices()
               const endDate = new Date()
               endDate.setMonth(endDate.getMonth() + (BILLING_MONTHS[billingCycle] ?? 1))
 
@@ -46,7 +59,7 @@ const subscriptionJob = (agenda) => {
               await Payment.create({
                 user:                 sub.user._id,
                 subscription:         sub._id,
-                amount:               PLAN_PRICES[sub.plan] ?? 0,
+                amount:               prices[sub.plan] ?? 0,
                 currency:             'USD',
                 status:               'approved',
                 method:               'mercadopago',
@@ -143,7 +156,7 @@ const subscriptionJob = (agenda) => {
         status:   'trial',
         trialEnd: { $lte: now },
         deletedAt: null,
-      }).populate('user', '_id suscription')
+      }).populate('user', '_id suscription email firstName')
 
       for (const sub of expiredTrials) {
         const oldPlan = sub.user?.suscription ?? sub.plan
@@ -166,6 +179,17 @@ const subscriptionJob = (agenda) => {
               'empresa/plans',
               null
             )
+            if (sub.user.email) {
+              try {
+                await sendGenericEmail({
+                  to: sub.user.email,
+                  subject: 'Tu suscripción ha vencido',
+                  body: `Hola ${sub.user.firstName || ''},<br><br>${msg}<br><br>Renueva tu suscripción en Petnder para seguir disfrutando de los beneficios.`,
+                })
+              } catch (emailErr) {
+                console.error(`Error enviando email de expiracion:`, emailErr.message)
+              }
+            }
           }
         }
         console.log(`Trial expirado: sub ${sub._id}`)
@@ -176,7 +200,7 @@ const subscriptionJob = (agenda) => {
         status:   'active',
         endDate:  { $lte: now, $ne: null },
         deletedAt: null,
-      }).populate('user', '_id suscription')
+      }).populate('user', '_id suscription email firstName')
 
       for (const sub of expiredSubs) {
         const oldPlan = sub.user?.suscription ?? sub.plan
@@ -200,23 +224,33 @@ const subscriptionJob = (agenda) => {
               'empresa/plans',
               null
             )
+            if (sub.user.email) {
+              try {
+                await sendGenericEmail({
+                  to: sub.user.email,
+                  subject: 'Tu suscripción ha vencido',
+                  body: `Hola ${sub.user.firstName || ''},<br><br>${msg}<br><br>Renueva tu suscripción en Petnder para seguir disfrutando de los beneficios.`,
+                })
+              } catch (emailErr) {
+                console.error(`Error enviando email de expiracion:`, emailErr.message)
+              }
+            }
           }
         }
         console.log(`Suscripcion expirada: sub ${sub._id}`)
       }
 
-      // Reminder: subscriptions about to expire
+      // Reminder: subscriptions about to expire (7 days = email only, 3 days or less = email + in-app)
       if (autoConfig?.premiumReminderEnabled) {
-        const reminderDays = autoConfig.premiumReminderDaysBefore || 3
-        const reminderDate = new Date()
-        reminderDate.setDate(reminderDate.getDate() + reminderDays)
+        const sevenDaysFromNow = new Date()
+        sevenDaysFromNow.setDate(sevenDaysFromNow.getDate() + 7)
 
         const aboutToExpire = await Subscription.find({
           status: 'active',
-          endDate: { $lte: reminderDate, $gt: now, $ne: null },
+          endDate: { $lte: sevenDaysFromNow, $gt: now, $ne: null },
           deletedAt: null,
           mercadopagoSubscriptionId: null,
-        }).populate('user', '_id suscription')
+        }).populate('user', '_id suscription email firstName')
 
         for (const sub of aboutToExpire) {
           if (!sub.user?._id) continue
@@ -224,13 +258,28 @@ const subscriptionJob = (agenda) => {
           const msg = (autoConfig.premiumReminderMessage || 'Tu suscripción {plan} vence en {dias} días.')
             .replace('{plan}', sub.plan)
             .replace('{dias}', String(daysLeft))
-          await createUserNotification(
-            sub.user._id,
-            'Tu suscripción está por vencer',
-            msg,
-            'empresa/plans',
-            null
-          )
+
+          if (daysLeft <= 3) {
+            await createUserNotification(
+              sub.user._id,
+              'Tu suscripción está por vencer',
+              msg,
+              'empresa/plans',
+              null
+            )
+          }
+
+          if (sub.user.email) {
+            try {
+              await sendGenericEmail({
+                to: sub.user.email,
+                subject: 'Tu suscripción está por vencer',
+                body: `Hola ${sub.user.firstName || ''},<br><br>${msg}<br><br>Ingresa a Petnder para renovar tu suscripción y no perder tus beneficios.`,
+              })
+            } catch (emailErr) {
+              console.error(`Error enviando email de reminder a ${sub.user.email}:`, emailErr.message)
+            }
+          }
         }
       }
     } catch (err) {

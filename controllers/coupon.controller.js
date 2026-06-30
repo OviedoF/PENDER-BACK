@@ -261,4 +261,19 @@ CouponController.adminGetMetrics = async (req, res) => {
     }
 };
 
+CouponController.adminExport = async (req, res) => {
+    try {
+        await verifyAdmin(req)
+        const coupons = await Cupon.find()
+            .populate('service', 'nombre')
+            .select('nombre descuento tipo estado startDate endDate usageCount maxUses hidden createdAt')
+            .sort({ createdAt: -1 })
+            .limit(5000)
+            .lean()
+        res.json({ coupons })
+    } catch (error) {
+        res.status(500).json({ error: error.message })
+    }
+}
+
 export default CouponController

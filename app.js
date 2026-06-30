@@ -8,6 +8,7 @@ import seeds from './seeds.js';
 import env from './env.js';
 import morgan from 'morgan';
 import bodyParser from 'body-parser';
+import ipBlacklistMiddleware from './middlewares/ipBlacklistMiddleware.js';
 
 dotenv.config();
 connectDB();
@@ -34,6 +35,7 @@ app.use((req, res, next) => {
 });
 
 app.use(morgan('dev'));
+app.use(ipBlacklistMiddleware);
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({extended:false}))
 app.use(express.static(publicPath));

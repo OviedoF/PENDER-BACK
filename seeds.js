@@ -2,6 +2,7 @@ import dotenv from 'dotenv';
 import bcrypt from 'bcrypt';
 import Category from './models/Category.js';
 import User from './models/User.js';
+import AdminRole from './models/AdminRole.js';
 dotenv.config();
 
 async function seedAdmin() {
@@ -121,10 +122,103 @@ async function seedCategories() {
   }
 }
 
+async function seedAdminRoles() {
+  try {
+    const existing = await AdminRole.countDocuments();
+    if (existing > 0) {
+      console.log('Los roles de admin ya existen. No se realizaron cambios.');
+      return;
+    }
+
+    const allManage = {
+      dashboard: 'manage', usuarios: 'manage', empresas: 'manage',
+      mascotas: 'manage', adopciones: 'manage', comunidad: 'manage',
+      cupones: 'manage', suscripciones: 'manage', pagos: 'manage',
+      seguridad: 'manage', geolocalizacion: 'manage',
+      automatizaciones: 'manage', configuracion: 'manage', adminUsuarios: 'manage',
+    };
+
+    const defaultRoles = [
+      {
+        name: 'Super Admin',
+        description: 'Acceso total a todas las funcionalidades del panel',
+        isDefault: true,
+        permissions: allManage,
+      },
+      {
+        name: 'Admin Operativo',
+        description: 'Gestión operativa diaria sin acceso a configuración ni roles',
+        isDefault: true,
+        permissions: {
+          dashboard: 'view', usuarios: 'manage', empresas: 'manage',
+          mascotas: 'manage', adopciones: 'manage', comunidad: 'manage',
+          cupones: 'manage', suscripciones: 'view', pagos: 'view',
+          seguridad: 'view', geolocalizacion: 'view',
+          automatizaciones: 'none', configuracion: 'none', adminUsuarios: 'none',
+        },
+      },
+      {
+        name: 'Moderador',
+        description: 'Moderación de contenido, comunidad y reportes de seguridad',
+        isDefault: true,
+        permissions: {
+          dashboard: 'view', usuarios: 'view', empresas: 'view',
+          mascotas: 'view', adopciones: 'view', comunidad: 'manage',
+          cupones: 'none', suscripciones: 'none', pagos: 'none',
+          seguridad: 'manage', geolocalizacion: 'none',
+          automatizaciones: 'none', configuracion: 'none', adminUsuarios: 'none',
+        },
+      },
+      {
+        name: 'Marketing',
+        description: 'Gestión de cupones, comunidad y contenido promocional',
+        isDefault: true,
+        permissions: {
+          dashboard: 'view', usuarios: 'view', empresas: 'view',
+          mascotas: 'view', adopciones: 'none', comunidad: 'manage',
+          cupones: 'manage', suscripciones: 'view', pagos: 'none',
+          seguridad: 'none', geolocalizacion: 'none',
+          automatizaciones: 'view', configuracion: 'none', adminUsuarios: 'none',
+        },
+      },
+      {
+        name: 'Finanzas',
+        description: 'Gestión de pagos, suscripciones y métricas financieras',
+        isDefault: true,
+        permissions: {
+          dashboard: 'view', usuarios: 'view', empresas: 'view',
+          mascotas: 'none', adopciones: 'none', comunidad: 'none',
+          cupones: 'view', suscripciones: 'manage', pagos: 'manage',
+          seguridad: 'none', geolocalizacion: 'none',
+          automatizaciones: 'none', configuracion: 'none', adminUsuarios: 'none',
+        },
+      },
+      {
+        name: 'Soporte',
+        description: 'Atención a usuarios y empresas, gestión de reportes',
+        isDefault: true,
+        permissions: {
+          dashboard: 'view', usuarios: 'view', empresas: 'view',
+          mascotas: 'view', adopciones: 'view', comunidad: 'view',
+          cupones: 'none', suscripciones: 'view', pagos: 'none',
+          seguridad: 'manage', geolocalizacion: 'view',
+          automatizaciones: 'none', configuracion: 'none', adminUsuarios: 'none',
+        },
+      },
+    ];
+
+    await AdminRole.insertMany(defaultRoles);
+    console.log('✅ Roles de admin creados exitosamente.');
+  } catch (error) {
+    console.error('❌ Error al crear los roles de admin:', error.message);
+  }
+}
+
 const seeds = async () => {
   await seedAdmin();
   await seedAprobator();
   await seedCategories();
+  await seedAdminRoles();
 };
 
 export default seeds;

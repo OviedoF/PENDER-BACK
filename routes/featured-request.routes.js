@@ -1,7 +1,7 @@
 // routes/featured.routes.js
 import { Router } from "express";
 import FeaturedController from "../controllers/featuredRequest.controller.js";
-import { onlyAdmin, onlyAprobator } from "../middlewares/roleMiddleware.js";
+import { requirePermission } from "../middlewares/roleMiddleware.js";
 
 const router = Router();
 

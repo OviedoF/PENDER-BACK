@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import AdoptionController from '../controllers/adoption.controller.js';
-import { onlyAdmin } from '../middlewares/roleMiddleware.js';
+import { requirePermission } from '../middlewares/roleMiddleware.js';
 import upload from '../config/multer.config.js'; // Multer config
 
 const router = Router();
@@ -33,16 +33,21 @@ router.delete('/:id', AdoptionController.delete);
 router.post('/:id/report', AdoptionController.reportAbuse);
 
 // ─── ADMIN ROUTES ─────────────────────────────────────────────────────────────
-router.get('/admin/all',            AdoptionController.adminGetAll);
-router.get('/admin/reports',        AdoptionController.adminGetReports);
-router.get('/admin/detect-fraud',   AdoptionController.adminDetectFraud);
-router.get('/admin/user/:userId',   AdoptionController.adminGetUserHistory);
-router.get('/admin/:id',            AdoptionController.adminGetById);
-router.put('/admin/:id/approve',    AdoptionController.adminApprove);
-router.put('/admin/:id/reject',     AdoptionController.adminReject);
-router.put('/admin/:id/adopted',    AdoptionController.adminMarkAdopted);
-router.put('/admin/:id/fraud',      AdoptionController.adminFlagFraud);
-router.delete('/admin/:id',         AdoptionController.adminDelete);
-router.put('/admin/reports/:id/resolve', AdoptionController.adminResolveReport);
+const view = requirePermission('adopciones', 'view');
+const manage = requirePermission('adopciones', 'manage');
+const deleteAdopcion = requirePermission('adopciones', 'delete');
+
+router.get('/admin/export',         view,   AdoptionController.adminExport);
+router.get('/admin/all',            view,   AdoptionController.adminGetAll);
+router.get('/admin/reports',        view,   AdoptionController.adminGetReports);
+router.get('/admin/detect-fraud',   view,   AdoptionController.adminDetectFraud);
+router.get('/admin/user/:userId',   view,   AdoptionController.adminGetUserHistory);
+router.get('/admin/:id',            view,   AdoptionController.adminGetById);
+router.put('/admin/:id/approve',    manage, AdoptionController.adminApprove);
+router.put('/admin/:id/reject',     manage, AdoptionController.adminReject);
+router.put('/admin/:id/adopted',    manage, AdoptionController.adminMarkAdopted);
+router.put('/admin/:id/fraud',      manage, AdoptionController.adminFlagFraud);
+router.delete('/admin/:id',         deleteAdopcion, AdoptionController.adminDelete);
+router.put('/admin/reports/:id/resolve', manage, AdoptionController.adminResolveReport);
 
 export default router;

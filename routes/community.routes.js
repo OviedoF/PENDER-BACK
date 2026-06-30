@@ -1,24 +1,29 @@
 import { Router } from 'express';
 import CommunityController from '../controllers/community.controller.js';
-import { onlyAdmin } from '../middlewares/roleMiddleware.js';
+import { requirePermission } from '../middlewares/roleMiddleware.js';
 import upload from '../config/multer.config.js';
 
 const router = Router();
 
+const viewComunidad = requirePermission('comunidad', 'view');
+const moderateComunidad = requirePermission('comunidad', 'moderate');
+const deleteComunidad = requirePermission('comunidad', 'delete');
+
 // ─── ADMIN (before /:id to avoid capture) ────────────────────────────────────
-router.get('/admin/all',                    CommunityController.adminGetAll);
-router.get('/admin/metrics',                CommunityController.adminGetMetrics);
-router.post('/admin/official',              CommunityController.adminCreateOfficial);
-router.get('/admin/:id/comments',           CommunityController.adminGetComments);
-router.get('/admin/:id',                    CommunityController.adminGetById);
-router.put('/admin/:id/official',           CommunityController.adminToggleOfficial);
-router.put('/admin/:id/featured',           CommunityController.adminToggleFeatured);
-router.put('/admin/:id/ban',                CommunityController.adminBanUser);
-router.put('/admin/:id/unban',              CommunityController.adminUnbanUser);
-router.get('/admin/reported-comments',       CommunityController.adminGetReportedComments);
-router.put('/admin/comment/:id/dismiss',     CommunityController.adminDismissReports);
-router.delete('/admin/comment/:commentId',  CommunityController.adminDeleteComment);
-router.delete('/admin/:id',                 CommunityController.adminDelete);
+router.get('/admin/export',                 viewComunidad,      CommunityController.adminExport);
+router.get('/admin/all',                    viewComunidad,      CommunityController.adminGetAll);
+router.get('/admin/metrics',                viewComunidad,      CommunityController.adminGetMetrics);
+router.get('/admin/reported-comments',       viewComunidad,      CommunityController.adminGetReportedComments);
+router.get('/admin/:id/comments',           viewComunidad,      CommunityController.adminGetComments);
+router.get('/admin/:id',                    viewComunidad,      CommunityController.adminGetById);
+router.post('/admin/official',              moderateComunidad,  CommunityController.adminCreateOfficial);
+router.put('/admin/:id/official',           moderateComunidad,  CommunityController.adminToggleOfficial);
+router.put('/admin/:id/featured',           moderateComunidad,  CommunityController.adminToggleFeatured);
+router.put('/admin/:id/ban',                moderateComunidad,  CommunityController.adminBanUser);
+router.put('/admin/:id/unban',              moderateComunidad,  CommunityController.adminUnbanUser);
+router.put('/admin/comment/:id/dismiss',     moderateComunidad,  CommunityController.adminDismissReports);
+router.delete('/admin/comment/:commentId',  deleteComunidad,    CommunityController.adminDeleteComment);
+router.delete('/admin/:id',                 deleteComunidad,    CommunityController.adminDelete);
 
 // ─── PUBLIC ───────────────────────────────────────────────────────────────────
 router.post('/comment/:id/report',          CommunityController.reportComment);

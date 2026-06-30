@@ -11,7 +11,7 @@ const verifyAdmin = async (req) => {
     const token = req.headers.authorization.split(' ')[1];
     const payload = jwt.verify(token, process.env.JWT_SECRET);
     const user = await User.findOne({ _id: payload.id });
-    if (!user || user.role !== 'admin') throw new Error('No tienes permisos de administrador');
+    if (!user || !['admin', 'moderator'].includes(user.role)) throw new Error('No tienes permisos de administrador');
     return user;
 };
 
@@ -516,6 +516,21 @@ AdoptionController.adminResolveReport = async (req, res) => {
         res.status(200).json(report);
     } catch (error) {
         res.status(400).json({ error: error.message });
+    }
+};
+
+AdoptionController.adminExport = async (req, res) => {
+    try {
+        await verifyAdmin(req);
+        const adoptions = await Adoption.find()
+            .populate('user', 'firstName lastName email')
+            .select('nombre especie raza edad sexo tamaño ciudad departamento estado adopted createdAt')
+            .sort({ createdAt: -1 })
+            .limit(5000)
+            .lean();
+        res.json({ adoptions });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
     }
 };
 

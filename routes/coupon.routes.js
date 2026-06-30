@@ -1,14 +1,19 @@
 import { Router } from 'express'
 import CouponController from '../controllers/coupon.controller.js'
-import { onlyAdmin } from '../middlewares/roleMiddleware.js'
+import { requirePermission } from '../middlewares/roleMiddleware.js'
 
 const router = Router()
 
+const viewCupones = requirePermission('cupones', 'view')
+const createCupones = requirePermission('cupones', 'create')
+const deleteCupones = requirePermission('cupones', 'delete')
+
 // Admin routes (must be before /:id to avoid param conflicts)
-router.get('/admin/all', onlyAdmin, CouponController.adminGetAll)
-router.post('/admin/create', onlyAdmin, CouponController.adminCreate)
-router.get('/admin/:id/metrics', onlyAdmin, CouponController.adminGetMetrics)
-router.delete('/admin/:id', onlyAdmin, CouponController.adminDelete)
+router.get('/admin/export', viewCupones, CouponController.adminExport)
+router.get('/admin/all', viewCupones, CouponController.adminGetAll)
+router.post('/admin/create', createCupones, CouponController.adminCreate)
+router.get('/admin/:id/metrics', viewCupones, CouponController.adminGetMetrics)
+router.delete('/admin/:id', deleteCupones, CouponController.adminDelete)
 
 // Coupon routes
 router.post('/', CouponController.create) // Create a coupon

@@ -12,7 +12,7 @@ const verifyAdmin = async (req) => {
     const token = req.headers.authorization.split(' ')[1];
     const payload = jwt.verify(token, process.env.JWT_SECRET);
     const user = await User.findOne({ _id: payload.id });
-    if (!user || user.role !== 'admin') throw new Error('No tienes permisos de administrador');
+    if (!user || !['admin', 'moderator'].includes(user.role)) throw new Error('No tienes permisos de administrador');
     return user;
 };
 
@@ -87,7 +87,7 @@ GeoController.getMapData = async (req, res) => {
                 finished: false,
                 tipo: 'reporte',
             }).select(
-                'nombre especie raza imagen distrito ciudad departamento createdAt'
+                'nombre especie raza imagen distrito ciudad departamento latitude longitude createdAt'
             ).sort({ createdAt: -1 }).limit(200),
 
             FindMe.find({
@@ -95,7 +95,7 @@ GeoController.getMapData = async (req, res) => {
                 finished: false,
                 tipo: 'busqueda',
             }).select(
-                'nombre especie raza imagen distrito ciudad departamento createdAt'
+                'nombre especie raza imagen distrito ciudad departamento latitude longitude createdAt'
             ).sort({ createdAt: -1 }).limit(200),
         ]);
 

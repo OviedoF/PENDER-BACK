@@ -1,9 +1,8 @@
 import mongoose from 'mongoose';
 import fs from 'fs';
 import path from 'path';
-import { createRequire } from 'module';
-const require = createRequire(import.meta.url);
-const archiver = require('archiver');
+import * as archiverModule from 'archiver';
+const archiver = archiverModule.default || archiverModule;
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 import BackupConfig from '../models/BackupConfig.js';

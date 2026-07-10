@@ -1,8 +1,7 @@
 import mongoose from 'mongoose';
 import fs from 'fs';
 import path from 'path';
-import * as archiverModule from 'archiver';
-const archiver = archiverModule.default || archiverModule;
+import { ZipArchive } from 'archiver';
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 import BackupConfig from '../models/BackupConfig.js';
@@ -184,7 +183,7 @@ export async function runBackup() {
   const collections = await mongoose.connection.db.listCollections().toArray();
 
   const output = fs.createWriteStream(filePath);
-  const archive = archiver('zip', { zlib: { level: 6 } });
+  const archive = new ZipArchive({ zlib: { level: 6 } });
 
   await new Promise((resolve, reject) => {
     output.on('close', resolve);

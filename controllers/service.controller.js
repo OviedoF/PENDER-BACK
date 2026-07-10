@@ -116,7 +116,7 @@ ServiceController.getAll = async (req, res) => {
         // Traer todos los servicios con filtro
         const allServices = await Service.find(filter)
             .sort({ createdAt: -1, score: -1 })
-            .populate("user", "username firstName lastName image _id featured priority");
+            .populate("user", "username firstName lastName image _id featured priority verified");
 
         // Traer todas las featuredRequest aprobadas
         const approvedRequests = await featuredRequest
@@ -124,7 +124,7 @@ ServiceController.getAll = async (req, res) => {
             .populate("coupon")
             .populate({
                 path: "service",
-                populate: { path: "user", select: "username firstName lastName image _id" },
+                populate: { path: "user", select: "username firstName lastName image _id verified" },
             });
 
         // Clasificación
@@ -209,7 +209,30 @@ ServiceController.getAll = async (req, res) => {
             return (b.score ?? 0) - (a.score ?? 0);
         });
 
-        return res.status(200).json({ premium, approved, regular });
+        // Adjuntar descuento del cupón activo (si la empresa tiene) para mostrarlo en la foto
+        const activeCoupons = await Cupon.find({
+            service: { $in: regular.map((s) => s._id) },
+            oculto: false,
+            activarProgramacion: false,
+            deletedAt: null,
+        }).select('service valorDescuento tipoDescuento').lean();
+
+        const couponByService = {};
+        activeCoupons.forEach((c) => {
+            const sid = c.service.toString();
+            if (!couponByService[sid]) couponByService[sid] = c;
+        });
+
+        const regularWithDiscount = regular.map((s) => {
+            const c = couponByService[s._id.toString()];
+            if (!c) return s;
+            return {
+                ...s.toObject(),
+                discount: `${c.valorDescuento} ${c.tipoDescuento === "Porcentaje" ? "%" : "$"}`,
+            };
+        });
+
+        return res.status(200).json({ premium, approved, regular: regularWithDiscount });
     } catch (error) {
         console.error("Error en getAll:", error);
         res.status(500).json({ error: error.message });
@@ -225,7 +248,7 @@ ServiceController.getById = async (req, res) => {
         if (!user) return res.status(401).json({ error: 'Usuario no autorizado' });
 
         const service = await Service.findOne({ _id: req.params.id, deletedAt: null })
-            .populate('user', 'username firstName lastName image _id commercialName');
+            .populate('user', 'username firstName lastName image _id commercialName verified');
         const isOwner = service.user._id.toString() === user._id.toString();
 
         if (!service) return res.status(404).json({ error: 'Servicio no encontrado' });
@@ -699,10 +722,60 @@ ServiceController.getTagsByCategory = async (req, res) => {
 ServiceController.adminGetByEnterprise = async (req, res) => {
     try {
         const services = await Service.find({ user: req.params.enterpriseId })
-            .select('nombre categoria ciudad departamento imagen imagenes vistas score deletedAt oculto createdAt detalle etiquetas direccion telefono ruc')
+            .select('nombre categoria ciudad distrito departamento imagen imagenes vistas score deletedAt oculto createdAt detalle etiquetas direccion telefono ruc')
             .sort({ createdAt: -1 })
             .lean();
         res.json({ services });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// Admin: editar cualquier campo de un servicio
+ServiceController.adminUpdateService = async (req, res) => {
+    try {
+        const service = await Service.findById(req.params.id);
+        if (!service) return res.status(404).json({ error: 'Servicio no encontrado' });
+
+        if (typeof req.body.etiquetas === 'string') {
+            try { req.body.etiquetas = JSON.parse(req.body.etiquetas); } catch { req.body.etiquetas = []; }
+        }
+        if (typeof req.body.deletedImages === 'string') {
+            try { req.body.deletedImages = JSON.parse(req.body.deletedImages); } catch { req.body.deletedImages = []; }
+        }
+
+        const baseUrl = process.env.API_URL;
+        if (req.files?.imagen?.length) {
+            req.body.imagen = `${baseUrl}/api/uploads/${req.files.imagen[0].filename}`;
+        }
+        const nuevasImagenes = req.files?.imagenes?.length
+            ? req.files.imagenes.map((file) => `${baseUrl}/api/uploads/${file.filename}`)
+            : [];
+
+        // Quitar imágenes marcadas para eliminar (del modelo y del disco)
+        if (Array.isArray(req.body.deletedImages)) {
+            for (const imgUrl of req.body.deletedImages) {
+                service.imagenes = service.imagenes.filter((img) => img !== imgUrl);
+                const fileName = imgUrl.split('/api/uploads/')[1];
+                if (fileName) {
+                    const filePath = path.join(__dirname, 'public', 'uploads', fileName);
+                    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+                }
+            }
+        }
+
+        const editable = ['nombre', 'ciudad', 'distrito', 'departamento', 'telefono', 'direccion', 'categoria', 'etiquetas', 'detalle', 'ruc', 'times', 'imagen'];
+        for (const field of editable) {
+            if (req.body[field] !== undefined) service[field] = req.body[field];
+        }
+        if (req.body.oculto !== undefined) service.oculto = req.body.oculto === true || req.body.oculto === 'true';
+        if (req.body.latitude !== undefined && req.body.latitude !== '') service.latitude = Number(req.body.latitude);
+        if (req.body.longitude !== undefined && req.body.longitude !== '') service.longitude = Number(req.body.longitude);
+
+        service.imagenes = [...service.imagenes, ...nuevasImagenes];
+
+        await service.save();
+        res.json({ message: 'Servicio actualizado', service });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }

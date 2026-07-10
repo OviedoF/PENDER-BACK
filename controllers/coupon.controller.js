@@ -46,7 +46,6 @@ CouponController.getAllByService = async (req, res) => {
 CouponController.getActive = async (req, res) => {
     try {
         const { serviceId } = req.params;
-        console.log("Service ID:", serviceId); // Verifica que el ID del servicio se reciba correctamente
 
         const cupones = await Cupon.find({
             service: serviceId,
@@ -55,7 +54,37 @@ CouponController.getActive = async (req, res) => {
             deletedAt: null
         }).sort({ createdAt: -1 })
 
-        res.json(cupones)
+        // Cupones globales (creados desde el admin, sin servicio asociado):
+        // aplican a todos los servicios, respetando vigencia, límite de usos y zona
+        const now = new Date()
+        const globales = await Cupon.find({
+            global: true,
+            oculto: false,
+            activarProgramacion: { $ne: true },
+            deletedAt: null,
+            $and: [
+                { $or: [{ fechaInicio: null }, { fechaInicio: { $lte: now } }] },
+                { $or: [{ fechaExpiracion: null }, { fechaExpiracion: { $gte: now } }] },
+            ],
+        }).sort({ createdAt: -1 })
+
+        let globalesVigentes = globales.filter(c =>
+            c.limiteUsos == null || c.usosActuales < c.limiteUsos
+        )
+
+        const conZona = globalesVigentes.some(c => c.zona)
+        if (conZona) {
+            const service = await Service.findById(serviceId).select('departamento distrito ciudad').lean()
+            globalesVigentes = globalesVigentes.filter(c => {
+                if (!c.zona) return true
+                if (!service) return false
+                const zona = c.zona.toLowerCase()
+                return [service.departamento, service.distrito, service.ciudad]
+                    .some(z => z && z.toLowerCase() === zona)
+            })
+        }
+
+        res.json([...cupones, ...globalesVigentes])
     } catch (error) {
         res.status(500).json({ error: error.message })
     }
@@ -92,6 +121,31 @@ CouponController.getHidden = async (req, res) => {
         }).sort({ createdAt: -1 })
 
         res.json(cupones)
+    } catch (error) {
+        res.status(500).json({ error: error.message })
+    }
+}
+
+// Obtener cupones globales activos (promociones de la plataforma)
+CouponController.getGlobalActive = async (req, res) => {
+    try {
+        const now = new Date()
+        const globales = await Cupon.find({
+            global: true,
+            oculto: false,
+            activarProgramacion: { $ne: true },
+            deletedAt: null,
+            $and: [
+                { $or: [{ fechaInicio: null }, { fechaInicio: { $lte: now } }] },
+                { $or: [{ fechaExpiracion: null }, { fechaExpiracion: { $gte: now } }] },
+            ],
+        }).sort({ createdAt: -1 })
+
+        const vigentes = globales.filter(c =>
+            c.limiteUsos == null || c.usosActuales < c.limiteUsos
+        )
+
+        res.json(vigentes)
     } catch (error) {
         res.status(500).json({ error: error.message })
     }

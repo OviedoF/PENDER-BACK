@@ -1093,7 +1093,7 @@ authController.getEnterprisesAdmin = async (req, res) => {
 
     const [enterprises, total, totalFeatured, totalInactive, totalPending] = await Promise.all([
       User.find(query)
-        .select('commercialName email city department image createdAt featured priority enterpriseActive ruc enterpriseAprobationPending')
+        .select('commercialName email city department image createdAt featured priority enterpriseActive ruc enterpriseAprobationPending verified')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(Number(limit))
@@ -1132,6 +1132,21 @@ authController.exportEnterprisesAdmin = async (req, res) => {
       .limit(5000)
       .lean();
     res.json({ enterprises });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+authController.toggleVerifiedEnterprise = async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ error: 'Empresa no encontrada' });
+    const newVerified = !user.verified;
+    await User.findByIdAndUpdate(req.params.id, { verified: newVerified });
+    res.json({
+      message: newVerified ? 'Empresa verificada como oficial' : 'Verificación oficial removida',
+      verified: newVerified,
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

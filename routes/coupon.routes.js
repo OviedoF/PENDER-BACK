@@ -17,6 +17,7 @@ router.delete('/admin/:id', deleteCupones, CouponController.adminDelete)
 
 // Coupon routes
 router.post('/', CouponController.create) // Create a coupon
+router.get('/global/active', CouponController.getGlobalActive) // Get active global coupons (platform promos)
 router.get('/service/:serviceId/all', CouponController.getAllByService) // Get all coupons for a service
 router.get('/service/active/:serviceId', CouponController.getActive) // Get active coupons
 router.get('/service/scheduled/:serviceId', CouponController.getScheduled) // Get scheduled coupons

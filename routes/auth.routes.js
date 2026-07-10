@@ -68,6 +68,7 @@ router.put('/enterprises/bulk-disable', deleteEmpresas, authController.bulkDisab
 router.put('/enterprises/:id/approve', approveEmpresas, authController.approveEnterprise);
 router.put('/enterprises/:id/deny', approveEmpresas, authController.denyEnterprise);
 router.put('/enterprises/:id/featured', editEmpresas, authController.toggleFeaturedEnterprise);
+router.put('/enterprises/:id/verified', editEmpresas, authController.toggleVerifiedEnterprise);
 router.put('/enterprises/:id/priority', editEmpresas, authController.setEnterprisePriority);
 router.put('/enterprises/:id/active', editEmpresas, authController.toggleEnterpriseActive);
 

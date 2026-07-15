@@ -19,6 +19,7 @@ router.get('/admin/:id',                    viewComunidad,      CommunityControl
 router.post('/admin/official',              moderateComunidad,  CommunityController.adminCreateOfficial);
 router.put('/admin/:id/official',           moderateComunidad,  CommunityController.adminToggleOfficial);
 router.put('/admin/:id/featured',           moderateComunidad,  CommunityController.adminToggleFeatured);
+router.put('/admin/:id/privacy',            moderateComunidad,  CommunityController.adminTogglePrivacy);
 router.put('/admin/:id/ban',                moderateComunidad,  CommunityController.adminBanUser);
 router.put('/admin/:id/unban',              moderateComunidad,  CommunityController.adminUnbanUser);
 router.put('/admin/comment/:id/dismiss',     moderateComunidad,  CommunityController.adminDismissReports);

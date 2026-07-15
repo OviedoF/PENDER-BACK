@@ -116,58 +116,71 @@ ServiceController.getAll = async (req, res) => {
         // Traer todos los servicios con filtro
         const allServices = await Service.find(filter)
             .sort({ createdAt: -1, score: -1 })
-            .populate("user", "username firstName lastName image _id featured priority verified");
+            .populate("user", "username firstName lastName image _id featured priority verified suscription");
 
-        // Traer todas las featuredRequest aprobadas
+        // FeaturedRequests aprobadas (flujo legacy): también elevan de nivel y aportan su cupón
         const approvedRequests = await featuredRequest
             .find({ status: "approved" })
             .populate("coupon")
-            .populate({
-                path: "service",
-                populate: { path: "user", select: "username firstName lastName image _id verified" },
-            });
+            .select("service coupon");
 
-        // Clasificación
-        const premium = [];
-        const approved = [];
+        const frByService = {};
+        approvedRequests.forEach((r) => {
+            if (!r.service) return;
+            frByService[r.service.toString()] = {
+                premium: !!r.coupon?.premium,
+                discount: r.coupon
+                    ? `${r.coupon.valorDescuento} ${r.coupon.tipoDescuento === "Porcentaje" ? "%" : "$"}`
+                    : undefined,
+            };
+        });
 
-        approvedRequests.forEach((req) => {
-            if (!req.service) return;
+        // Cupón propio activo de cada servicio (lo cargan las empresas basic)
+        const activeCoupons = await Cupon.find({
+            service: { $in: allServices.map((s) => s._id) },
+            oculto: false,
+            activarProgramacion: false,
+            deletedAt: null,
+        }).select('service valorDescuento tipoDescuento').lean();
 
-            // Aplicar el mismo filtro de búsqueda, categoría y tag al servicio destacado
-            const matchesFilter =
-                (!search ||
-                    req.service.nombre.toLowerCase().includes(search.toLowerCase())) &&
-                (!category || req.service.categoria === category) &&
-                (!tag ||
-                    req.service.etiquetas?.some((t) =>
-                        t.toLowerCase().includes(tag.toLowerCase())
-                    ));
-
-            if (!matchesFilter) return;
-
-            if (req.coupon?.premium) {
-                premium.push({
-                    ...req.service.toObject(),
-                    discount: `${req.coupon?.valorDescuento} ${req.coupon?.tipoDescuento === "Porcentaje" ? "%" : "$"
-                        }`,
-                });
-            } else {
-                approved.push({
-                    ...req.service.toObject(),
-                    discount: `${req.coupon?.valorDescuento} ${req.coupon?.tipoDescuento === "Porcentaje" ? "%" : "$"
-                        }`,
-                });
+        const couponByService = {};
+        activeCoupons.forEach((c) => {
+            const sid = c.service.toString();
+            if (!couponByService[sid]) {
+                couponByService[sid] = `${c.valorDescuento} ${c.tipoDescuento === "Porcentaje" ? "%" : "$"}`;
             }
         });
 
-        // Filtrar los "regular"
-        const excludedIds = new Set([
-            ...premium.map((s) => s._id.toString()),
-            ...approved.map((s) => s._id.toString()),
-        ]);
+        // Descuento fijo Petnder que llevan todas las empresas PRO (50% o S/ 50)
+        const PRO_FIXED_DISCOUNT = '50%';
 
-        let regular = allServices.filter((s) => !excludedIds.has(s._id.toString()));
+        // Clasificación:
+        //   premium  -> empresas PRO, con el descuento fijo Petnder
+        //   approved -> empresas que pagan (basic) o que tienen cupón propio
+        //               (creado por ellas o por el admin)
+        //   regular  -> empresas sin plan y sin cupones
+        const premium = [];
+        const approved = [];
+        let regular = [];
+
+        allServices.forEach((s) => {
+            const sid = s._id.toString();
+            const fr = frByService[sid];
+            const sub = s.user?.suscription;
+            const ownCoupon = couponByService[sid];
+
+            if (sub === 'pro' || fr?.premium) {
+                premium.push({ ...s.toObject(), discount: fr?.discount ?? PRO_FIXED_DISCOUNT });
+            } else if (sub === 'basic' || fr || ownCoupon) {
+                const discount = ownCoupon ?? fr?.discount;
+                approved.push({ ...s.toObject(), ...(discount ? { discount } : {}) });
+            } else {
+                regular.push(s);
+            }
+        });
+
+        premium.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+        approved.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
 
         const lat = parseFloat(userLat);
         const lng = parseFloat(userLng);
@@ -209,30 +222,8 @@ ServiceController.getAll = async (req, res) => {
             return (b.score ?? 0) - (a.score ?? 0);
         });
 
-        // Adjuntar descuento del cupón activo (si la empresa tiene) para mostrarlo en la foto
-        const activeCoupons = await Cupon.find({
-            service: { $in: regular.map((s) => s._id) },
-            oculto: false,
-            activarProgramacion: false,
-            deletedAt: null,
-        }).select('service valorDescuento tipoDescuento').lean();
-
-        const couponByService = {};
-        activeCoupons.forEach((c) => {
-            const sid = c.service.toString();
-            if (!couponByService[sid]) couponByService[sid] = c;
-        });
-
-        const regularWithDiscount = regular.map((s) => {
-            const c = couponByService[s._id.toString()];
-            if (!c) return s;
-            return {
-                ...s.toObject(),
-                discount: `${c.valorDescuento} ${c.tipoDescuento === "Porcentaje" ? "%" : "$"}`,
-            };
-        });
-
-        return res.status(200).json({ premium, approved, regular: regularWithDiscount });
+        // regular ya no lleva cupones: cualquier servicio con cupón subió a "approved"
+        return res.status(200).json({ premium, approved, regular });
     } catch (error) {
         console.error("Error en getAll:", error);
         res.status(500).json({ error: error.message });

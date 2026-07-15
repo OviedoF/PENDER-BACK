@@ -502,7 +502,9 @@ FoundMeController.adminGetAll = async (req, res) => {
             if (fechaDesde) filter.createdAt.$gte = new Date(fechaDesde);
             if (fechaHasta) {
                 const end = new Date(fechaHasta);
-                end.setHours(23, 59, 59, 999);
+                // Solo extender al fin del día si vino una fecha sin hora ("YYYY-MM-DD");
+                // un ISO completo ya trae el límite exacto.
+                if (!String(fechaHasta).includes('T')) end.setHours(23, 59, 59, 999);
                 filter.createdAt.$lte = end;
             }
         }

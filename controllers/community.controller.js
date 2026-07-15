@@ -524,6 +524,19 @@ CommunityController.adminToggleFeatured = async (req, res) => {
     }
 };
 
+CommunityController.adminTogglePrivacy = async (req, res) => {
+    try {
+        await verifyAdmin(req);
+        const community = await Community.findOne({ _id: req.params.id, deletedAt: null });
+        if (!community) return res.status(404).json({ message: 'No encontrado' });
+        community.privacidad = community.privacidad === 'privada' ? 'publica' : 'privada';
+        await community.save();
+        res.status(200).json(community);
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+};
+
 CommunityController.adminBanUser = async (req, res) => {
     try {
         await verifyAdmin(req);

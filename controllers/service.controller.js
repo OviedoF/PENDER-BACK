@@ -155,9 +155,10 @@ ServiceController.getAll = async (req, res) => {
         const PRO_FIXED_DISCOUNT = '50%';
 
         // Clasificación:
-        //   premium  -> empresas PRO, con el descuento fijo Petnder
-        //   approved -> empresas que pagan (basic) o que tienen cupón propio
-        //               (creado por ellas o por el admin)
+        //   premium  -> empresas PRO con el beneficio Petnder activo en el servicio
+        //               (descuento fijo -50%); el admin puede apagarlo por servicio
+        //   approved -> empresas que pagan (basic, o PRO sin beneficio) o que
+        //               tienen cupón propio (creado por ellas o por el admin)
         //   regular  -> empresas sin plan y sin cupones
         const premium = [];
         const approved = [];
@@ -169,9 +170,9 @@ ServiceController.getAll = async (req, res) => {
             const sub = s.user?.suscription;
             const ownCoupon = couponByService[sid];
 
-            if (sub === 'pro' || fr?.premium) {
+            if ((sub === 'pro' && s.petnderBenefit !== false) || fr?.premium) {
                 premium.push({ ...s.toObject(), discount: fr?.discount ?? PRO_FIXED_DISCOUNT });
-            } else if (sub === 'basic' || fr || ownCoupon) {
+            } else if (sub === 'pro' || sub === 'basic' || fr || ownCoupon) {
                 const discount = ownCoupon ?? fr?.discount;
                 approved.push({ ...s.toObject(), ...(discount ? { discount } : {}) });
             } else {
@@ -772,6 +773,22 @@ ServiceController.adminUpdateService = async (req, res) => {
     }
 };
 
+// Admin: activar/desactivar el beneficio Petnder (destacado -50%) de un servicio PRO
+ServiceController.adminTogglePetnderBenefit = async (req, res) => {
+    try {
+        const service = await Service.findById(req.params.id);
+        if (!service) return res.status(404).json({ error: 'Servicio no encontrado' });
+        service.petnderBenefit = service.petnderBenefit === false;
+        await service.save();
+        res.json({
+            message: service.petnderBenefit ? 'Beneficio Petnder activado' : 'Beneficio Petnder desactivado',
+            petnderBenefit: service.petnderBenefit,
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
 // Admin: habilitar/deshabilitar un servicio (borrado lógico)
 ServiceController.adminToggleService = async (req, res) => {
     try {
@@ -861,9 +878,9 @@ ServiceController.adminGetAllServices = async (req, res) => {
             const obj = s.toObject();
             const svcCoupons = couponsByService[s._id.toString()] ?? [];
             const sub = obj.user?.suscription;
-            const nivel = sub === 'pro'
+            const nivel = (sub === 'pro' && obj.petnderBenefit !== false)
                 ? 'premium'
-                : (sub === 'basic' || svcCoupons.length > 0) ? 'approved' : 'regular';
+                : (sub === 'pro' || sub === 'basic' || svcCoupons.length > 0) ? 'approved' : 'regular';
             return { ...obj, coupons: svcCoupons, nivel };
         });
 

@@ -20,6 +20,10 @@ const ServiceSchema = new mongoose.Schema({
     }],
     user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     score: { type: Number, default: 0 },
+    // Destacado con beneficio Petnder (-50% fijo): aplica solo a empresas PRO.
+    // El admin puede apagarlo por servicio para que una empresa con muchos
+    // locales no monopolice el carrusel premium.
+    petnderBenefit: { type: Boolean, default: true },
     deletedAt: { type: Date, default: null },
     ruc: { type: String, required: true },
     times: { type: String, default: '' },

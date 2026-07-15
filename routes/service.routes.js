@@ -30,6 +30,7 @@ router.delete('/:id', ServiceController.delete);
 router.get('/admin/all', requirePermission('empresas', 'view'), ServiceController.adminGetAllServices);
 router.get('/admin/enterprise/:enterpriseId', requirePermission('empresas', 'view'), ServiceController.adminGetByEnterprise);
 router.put('/admin/:id/toggle', requirePermission('empresas', 'edit'), ServiceController.adminToggleService);
+router.put('/admin/:id/petnder-benefit', requirePermission('empresas', 'edit'), ServiceController.adminTogglePetnderBenefit);
 router.put('/admin/:id', requirePermission('empresas', 'edit'), upload.fields([
     { name: 'imagen', maxCount: 1 },
     { name: 'imagenes', maxCount: 5 }

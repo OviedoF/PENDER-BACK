@@ -27,6 +27,7 @@ router.put('/:id', upload.fields([
 router.delete('/:id', ServiceController.delete);
 
 // Admin routes
+router.get('/admin/all', requirePermission('empresas', 'view'), ServiceController.adminGetAllServices);
 router.get('/admin/enterprise/:enterpriseId', requirePermission('empresas', 'view'), ServiceController.adminGetByEnterprise);
 router.put('/admin/:id/toggle', requirePermission('empresas', 'edit'), ServiceController.adminToggleService);
 router.put('/admin/:id', requirePermission('empresas', 'edit'), upload.fields([

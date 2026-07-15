@@ -788,4 +788,89 @@ ServiceController.adminToggleService = async (req, res) => {
     }
 };
 
+// Admin: listado global de servicios con filtros (empresa, plan, cupones, estado)
+ServiceController.adminGetAllServices = async (req, res) => {
+    try {
+        const { page = 1, search, category, plan, coupon, estado, enterprise } = req.query;
+        const limit = 20;
+        const skip = (Number(page) - 1) * limit;
+
+        const filter = {};
+        if (search && search.trim()) filter.nombre = { $regex: search, $options: 'i' };
+        if (category && category.trim()) filter.categoria = category;
+        if (estado === 'activo') filter.deletedAt = null;
+        if (estado === 'deshabilitado') filter.deletedAt = { $ne: null };
+
+        // Filtro por empresa (nombre/email) y/o plan de suscripcion
+        let userIds = null;
+        if (enterprise && enterprise.trim()) {
+            const regex = new RegExp(enterprise, 'i');
+            const users = await User.find({
+                $or: [{ commercialName: regex }, { firstName: regex }, { lastName: regex }, { email: regex }],
+            }).select('_id');
+            userIds = users.map((u) => u._id);
+        }
+        if (plan && plan.trim()) {
+            const planUsers = await User.find({ suscription: plan }).select('_id');
+            if (userIds) {
+                const planSet = new Set(planUsers.map((u) => u._id.toString()));
+                userIds = userIds.filter((id) => planSet.has(id.toString()));
+            } else {
+                userIds = planUsers.map((u) => u._id);
+            }
+        }
+        if (userIds) filter.user = { $in: userIds };
+
+        // Filtro con/sin cupon activo
+        if (coupon === 'con' || coupon === 'sin') {
+            const couponServiceIds = await Cupon.distinct('service', {
+                service: { $ne: null },
+                oculto: false,
+                activarProgramacion: false,
+                deletedAt: null,
+            });
+            filter._id = coupon === 'con' ? { $in: couponServiceIds } : { $nin: couponServiceIds };
+        }
+
+        const [services, total] = await Promise.all([
+            Service.find(filter)
+                .populate('user', 'commercialName firstName lastName email suscription featured verified image')
+                .sort({ createdAt: -1 })
+                .skip(skip)
+                .limit(limit),
+            Service.countDocuments(filter),
+        ]);
+
+        // Cupones activos de los servicios de esta pagina
+        const coupons = await Cupon.find({
+            service: { $in: services.map((s) => s._id) },
+            oculto: false,
+            activarProgramacion: false,
+            deletedAt: null,
+        }).select('service nombre codigo valorDescuento tipoDescuento premium').lean();
+
+        const couponsByService = {};
+        coupons.forEach((c) => {
+            const sid = c.service.toString();
+            if (!couponsByService[sid]) couponsByService[sid] = [];
+            couponsByService[sid].push(c);
+        });
+
+        // Nivel con el que se muestra en la app (misma regla que getAll)
+        const result = services.map((s) => {
+            const obj = s.toObject();
+            const svcCoupons = couponsByService[s._id.toString()] ?? [];
+            const sub = obj.user?.suscription;
+            const nivel = sub === 'pro'
+                ? 'premium'
+                : (sub === 'basic' || svcCoupons.length > 0) ? 'approved' : 'regular';
+            return { ...obj, coupons: svcCoupons, nivel };
+        });
+
+        res.json({ services: result, total, page: Number(page), totalPages: Math.ceil(total / limit) });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
 export default ServiceController;

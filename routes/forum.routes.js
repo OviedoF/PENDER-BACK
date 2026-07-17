@@ -16,6 +16,7 @@ router.get('/admin/:id/comments',          viewComunidad,      ForumController.a
 router.get('/admin/:id',                   viewComunidad,      ForumController.getById);
 router.put('/admin/:id/close',             moderateComunidad,  ForumController.adminToggleClosed);
 router.put('/admin/:id/pin',               moderateComunidad,  ForumController.adminTogglePinned);
+router.put('/admin/:id/feature',           moderateComunidad,  ForumController.adminToggleFeatured);
 router.put('/admin/comment/:id/dismiss',    moderateComunidad,  ForumController.adminDismissReports);
 router.delete('/admin/comment/:commentId', deleteComunidad,    ForumController.adminDeleteComment);
 router.delete('/admin/:id',                deleteComunidad,    ForumController.adminDelete);

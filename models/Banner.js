@@ -7,6 +7,9 @@ const bannerSchema = new mongoose.Schema({
   active:      { type: Boolean, default: true },
   order:       { type: Number, default: 0 },
 
+  // Segundos que el banner permanece visible en el carrusel antes de pasar al siguiente
+  duration:    { type: Number, default: 3, min: 1, max: 60 },
+
   // A/B testing
   variant:     { type: String, enum: ['A', 'B'], default: 'A' },
 

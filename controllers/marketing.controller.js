@@ -25,13 +25,14 @@ MarketingController.getBanners = async (_req, res) => {
 
 MarketingController.createBanner = async (req, res) => {
   try {
-    const { title, link, active, order, variant, startDate, endDate, departments, targetRoles, targetSubscriptions } = req.body;
+    const { title, link, active, order, duration, variant, startDate, endDate, departments, targetRoles, targetSubscriptions } = req.body;
     const image = req.file ? `/api/uploads/${req.file.filename}` : '';
     if (!image) return res.status(400).json({ error: 'Se requiere una imagen' });
 
     const banner = await Banner.create({
       title, image, link, active: active !== 'false',
       order: Number(order) || 0,
+      duration: Number(duration) || 3,
       variant: variant || 'A',
       startDate: startDate || null,
       endDate: endDate || null,
@@ -47,10 +48,11 @@ MarketingController.createBanner = async (req, res) => {
 
 MarketingController.updateBanner = async (req, res) => {
   try {
-    const { title, link, active, order, variant, startDate, endDate, departments, targetRoles, targetSubscriptions } = req.body;
+    const { title, link, active, order, duration, variant, startDate, endDate, departments, targetRoles, targetSubscriptions } = req.body;
     const update = {
       title, link, active: active !== 'false',
       order: Number(order) || 0,
+      duration: Number(duration) || 3,
       variant: variant || 'A',
       startDate: startDate || null,
       endDate: endDate || null,

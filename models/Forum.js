@@ -15,6 +15,7 @@ const ForumSchema = new mongoose.Schema({
     deletedAt: { type: Date, default: null },
     closed: { type: Boolean, default: false },
     pinned: { type: Boolean, default: false },
+    featured: { type: Boolean, default: false },
 }, { timestamps: true });
 
 export default mongoose.model('Forum', ForumSchema);

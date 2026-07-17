@@ -63,8 +63,7 @@ ForumController.getAll = async (req, res) => {
             filters.etiquetas = { $in: etiquetasArray };
         }
 
-        const forums = await Forum.find(filters).sort({ createdAt: -1 });
-        console.log(forums);
+        const forums = await Forum.find(filters).sort({ featured: -1, createdAt: -1 });
 
         const forumsToReturn = forums.map(forum => ({
             ...forum._doc,
@@ -505,12 +504,13 @@ const verifyAdmin = async (req) => {
 ForumController.adminGetAll = async (req, res) => {
     try {
         await verifyAdmin(req);
-        const { page = 1, search, closed, pinned } = req.query;
+        const { page = 1, search, closed, pinned, featured } = req.query;
         const limit = 20;
         const skip = (Number(page) - 1) * limit;
         const filter = { deletedAt: null };
         if (closed !== undefined && closed !== '') filter.closed = closed === 'true';
         if (pinned !== undefined && pinned !== '') filter.pinned = pinned === 'true';
+        if (featured !== undefined && featured !== '') filter.featured = featured === 'true';
         if (search && search.trim()) {
             const regex = new RegExp(search, 'i');
             filter.$or = [{ titulo: regex }, { descripcion: regex }, { categorias: regex }, { etiquetas: regex }];
@@ -518,7 +518,7 @@ ForumController.adminGetAll = async (req, res) => {
         const [forums, total] = await Promise.all([
             Forum.find(filter)
                 .populate('user', 'firstName lastName email image')
-                .sort({ pinned: -1, createdAt: -1 })
+                .sort({ featured: -1, pinned: -1, createdAt: -1 })
                 .skip(skip)
                 .limit(limit),
             Forum.countDocuments(filter),
@@ -556,6 +556,19 @@ ForumController.adminTogglePinned = async (req, res) => {
         const forum = await Forum.findOne({ _id: req.params.id, deletedAt: null });
         if (!forum) return res.status(404).json({ message: 'No encontrado' });
         forum.pinned = !forum.pinned;
+        await forum.save();
+        res.status(200).json(forum);
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+};
+
+ForumController.adminToggleFeatured = async (req, res) => {
+    try {
+        await verifyAdmin(req);
+        const forum = await Forum.findOne({ _id: req.params.id, deletedAt: null });
+        if (!forum) return res.status(404).json({ message: 'No encontrado' });
+        forum.featured = !forum.featured;
         await forum.save();
         res.status(200).json(forum);
     } catch (error) {

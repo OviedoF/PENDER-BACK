@@ -113,8 +113,10 @@ ServiceController.getAll = async (req, res) => {
             filter.etiquetas = { $regex: tag, $options: "i" };
         }
 
-        // Traer todos los servicios con filtro
+        // Traer todos los servicios con filtro. La colación es/strength 1 hace
+        // que el match de categoría ignore mayúsculas y acentos ("Café" == "cafe")
         const allServices = await Service.find(filter)
+            .collation({ locale: 'es', strength: 1 })
             .sort({ createdAt: -1, score: -1 })
             .populate("user", "username firstName lastName image _id featured priority verified suscription");
 
@@ -696,11 +698,12 @@ ServiceController.getTagsByCategory = async (req, res) => {
         if (!category) return res.status(400).json({ error: 'Categoría es requerida' });
 
         // 1️⃣ Obtener los tags únicos de los servicios en esa categoría
+        // (colación es/1: la categoría matchea sin importar mayúsculas ni acentos)
         const tagsAgg = await Service.aggregate([
             { $match: { categoria: category, deletedAt: null } },
             { $unwind: "$etiquetas" },
             { $group: { _id: "$etiquetas" } }
-        ]);
+        ]).collation({ locale: 'es', strength: 1 });
 
         const tags = tagsAgg.map(tag => tag._id);
         res.json({ category, tags });
@@ -851,11 +854,12 @@ ServiceController.adminGetAllServices = async (req, res) => {
 
         const [services, total] = await Promise.all([
             Service.find(filter)
+                .collation({ locale: 'es', strength: 1 })
                 .populate('user', 'commercialName firstName lastName email suscription featured verified image')
                 .sort({ createdAt: -1 })
                 .skip(skip)
                 .limit(limit),
-            Service.countDocuments(filter),
+            Service.countDocuments(filter).collation({ locale: 'es', strength: 1 }),
         ]);
 
         // Cupones activos de los servicios de esta pagina

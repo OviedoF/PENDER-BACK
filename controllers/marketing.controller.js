@@ -5,8 +5,11 @@ import EmailAutomation from '../models/EmailAutomation.js';
 import EmailCampaign from '../models/EmailCampaign.js';
 import User from '../models/User.js';
 import Notification from '../models/Notification.js';
-import sendGenericEmail from '../utils/sendGenericEmail.js';
 import nodemailer from 'nodemailer';
+import crypto from 'crypto';
+import { buildEmailHtml, safeRedirectUrl } from '../utils/emailHtml.js';
+import { dispatchPushCampaign, buildAudienceFilter, resolveInterestUserIds } from '../utils/pushCampaign.js';
+import { AUTOMATION_VARIABLES } from '../utils/emailAutomations.js';
 
 const MarketingController = {};
 
@@ -25,7 +28,7 @@ MarketingController.getBanners = async (_req, res) => {
 
 MarketingController.createBanner = async (req, res) => {
   try {
-    const { title, link, active, order, duration, variant, startDate, endDate, departments, targetRoles, targetSubscriptions } = req.body;
+    const { title, link, active, order, duration, variant, abGroup, startDate, endDate, departments, targetRoles, targetSubscriptions } = req.body;
     const image = req.file ? `/api/uploads/${req.file.filename}` : '';
     if (!image) return res.status(400).json({ error: 'Se requiere una imagen' });
 
@@ -34,6 +37,7 @@ MarketingController.createBanner = async (req, res) => {
       order: Number(order) || 0,
       duration: Number(duration) || 3,
       variant: variant || 'A',
+      abGroup: (abGroup || '').trim(),
       startDate: startDate || null,
       endDate: endDate || null,
       departments: departments ? JSON.parse(departments) : [],
@@ -48,12 +52,13 @@ MarketingController.createBanner = async (req, res) => {
 
 MarketingController.updateBanner = async (req, res) => {
   try {
-    const { title, link, active, order, duration, variant, startDate, endDate, departments, targetRoles, targetSubscriptions } = req.body;
+    const { title, link, active, order, duration, variant, abGroup, startDate, endDate, departments, targetRoles, targetSubscriptions } = req.body;
     const update = {
       title, link, active: active !== 'false',
       order: Number(order) || 0,
       duration: Number(duration) || 3,
       variant: variant || 'A',
+      abGroup: (abGroup || '').trim(),
       startDate: startDate || null,
       endDate: endDate || null,
       departments: departments ? JSON.parse(departments) : [],
@@ -90,15 +95,33 @@ MarketingController.reorderBanners = async (req, res) => {
   }
 };
 
+/**
+ * Asigna de forma estable a un usuario/dispositivo al grupo A o B (50/50).
+ * Usa el id de usuario si hay sesión; si no, el header x-device-id que manda la app.
+ */
+function abBucket(seed) {
+  if (!seed) return Math.random() < 0.5 ? 'A' : 'B';
+  const hash = crypto.createHash('md5').update(String(seed)).digest();
+  return hash[0] % 2 === 0 ? 'A' : 'B';
+}
+
 MarketingController.getActiveBanners = async (req, res) => {
   try {
     const now = new Date();
-    const user = req.user || {};
-    const role = user.role || 'user';
-    const subscription = user.suscription || 'free';
-    const department = user.department || '';
 
-    const banners = await Banner.find({ active: true }).sort({ order: 1 }).lean();
+    // Con optionalAuth, req.user trae { id, role } del JWT. Cargamos suscripción y zona desde la DB.
+    let role = 'user', subscription = 'free', department = '';
+    if (req.user?.id) {
+      const dbUser = await User.findById(req.user.id).select('role suscription department').lean();
+      if (dbUser) {
+        role = dbUser.role || 'user';
+        subscription = dbUser.suscription || 'free';
+        department = dbUser.department || '';
+      }
+    }
+    const bucket = abBucket(req.user?.id || req.headers['x-device-id']);
+
+    const banners = await Banner.find({ active: true }).sort({ order: 1, createdAt: -1 }).lean();
 
     const filtered = banners.filter(b => {
       if (b.startDate && new Date(b.startDate) > now) return false;
@@ -106,15 +129,19 @@ MarketingController.getActiveBanners = async (req, res) => {
       if (b.targetRoles?.length && !b.targetRoles.includes(role === 'enterprise' ? 'enterprise' : 'user')) return false;
       if (b.targetSubscriptions?.length && !b.targetSubscriptions.includes(subscription)) return false;
       if (b.departments?.length && department && !b.departments.includes(department)) return false;
+      // A/B: solo aplica a banners que pertenecen a un grupo de prueba
+      if (b.abGroup && (b.variant || 'A') !== bucket) return false;
       return true;
     });
 
-    await Banner.updateMany(
-      { _id: { $in: filtered.map(b => b._id) } },
-      { $inc: { impressions: 1 } }
-    );
+    if (filtered.length) {
+      await Banner.updateMany(
+        { _id: { $in: filtered.map(b => b._id) } },
+        { $inc: { impressions: 1 } }
+      );
+    }
 
-    res.json({ banners: filtered });
+    res.json({ banners: filtered, bucket });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -144,8 +171,57 @@ MarketingController.getPushCampaigns = async (_req, res) => {
 
 MarketingController.createPushCampaign = async (req, res) => {
   try {
-    const campaign = await PushCampaign.create(req.body);
+    const data = { ...req.body };
+    if (data.scheduledAt) {
+      const when = new Date(data.scheduledAt);
+      if (isNaN(when.getTime())) return res.status(400).json({ error: 'Fecha de programación inválida' });
+      data.scheduledAt = when;
+      data.status = 'scheduled';
+    } else {
+      data.scheduledAt = null;
+      data.status = 'draft';
+    }
+    const campaign = await PushCampaign.create(data);
     res.json(campaign);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// Reprogramar / cancelar programación (solo campañas no enviadas)
+MarketingController.updatePushCampaign = async (req, res) => {
+  try {
+    const campaign = await PushCampaign.findById(req.params.id);
+    if (!campaign) return res.status(404).json({ error: 'Campaña no encontrada' });
+    if (campaign.status === 'sent' || campaign.status === 'sending') return res.status(400).json({ error: 'La campaña ya fue enviada' });
+
+    const { scheduledAt, ...rest } = req.body;
+    Object.assign(campaign, rest);
+    if (scheduledAt) {
+      const when = new Date(scheduledAt);
+      if (isNaN(when.getTime())) return res.status(400).json({ error: 'Fecha de programación inválida' });
+      campaign.scheduledAt = when;
+      campaign.status = 'scheduled';
+    } else if (scheduledAt === null || scheduledAt === '') {
+      campaign.scheduledAt = null;
+      campaign.status = 'draft';
+    }
+    await campaign.save();
+    res.json(campaign);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// Vista previa de audiencia: cuántos usuarios y cuántos dispositivos alcanzaría
+MarketingController.previewPushAudience = async (req, res) => {
+  try {
+    const filter = buildAudienceFilter(req.body);
+    const interestIds = await resolveInterestUserIds(req.body.targetInterests);
+    if (interestIds) filter._id = { $in: [...interestIds] };
+    const users = await User.find(filter).select('pushTokens').lean();
+    const devices = users.reduce((acc, u) => acc + (u.pushTokens?.length || 0), 0);
+    res.json({ users: users.length, devices });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -155,36 +231,44 @@ MarketingController.sendPushCampaign = async (req, res) => {
   try {
     const campaign = await PushCampaign.findById(req.params.id);
     if (!campaign) return res.status(404).json({ error: 'Campaña no encontrada' });
-    if (campaign.status === 'sent') return res.status(400).json({ error: 'Campaña ya enviada' });
+    if (campaign.status === 'sent' || campaign.status === 'sending') return res.status(400).json({ error: 'Campaña ya enviada' });
 
-    const filter = { deletedAt: null };
-    if (campaign.targetRoles?.length) {
-      const roles = [];
-      if (campaign.targetRoles.includes('user')) roles.push('user');
-      if (campaign.targetRoles.includes('enterprise')) roles.push('enterprise');
-      filter.role = { $in: roles };
-    }
-    if (campaign.targetSubscriptions?.length) filter.suscription = { $in: campaign.targetSubscriptions };
-    if (campaign.targetDepartments?.length) filter.department = { $in: campaign.targetDepartments };
+    const result = await dispatchPushCampaign(campaign);
+    res.json({ sent: result.recipients, pushDelivered: result.pushDelivered, campaign });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
 
-    const users = await User.find(filter).select('_id').lean();
+// ─── Tokens de dispositivo (los registra la app móvil) ───────────────────────
 
-    const notifications = users.map(u => ({
-      title: campaign.title,
-      text: campaign.body,
-      link: campaign.link || null,
-      user: u._id,
-      readed: false,
-    }));
+MarketingController.registerPushToken = async (req, res) => {
+  try {
+    const { token, platform } = req.body;
+    if (!token || typeof token !== 'string') return res.status(400).json({ error: 'Token requerido' });
 
-    if (notifications.length) await Notification.insertMany(notifications);
+    // Un token pertenece a un solo usuario: si otro lo tenía (cambio de cuenta en el mismo dispositivo), se lo quitamos
+    await User.updateMany(
+      { _id: { $ne: req.user.id }, 'pushTokens.token': token },
+      { $pull: { pushTokens: { token } } }
+    );
+    await User.updateOne({ _id: req.user.id }, { $pull: { pushTokens: { token } } });
+    await User.updateOne(
+      { _id: req.user.id },
+      { $push: { pushTokens: { token, platform: platform || 'unknown', updatedAt: new Date() } } }
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
 
-    campaign.status = 'sent';
-    campaign.sentAt = new Date();
-    campaign.recipientCount = users.length;
-    await campaign.save();
-
-    res.json({ sent: users.length, campaign });
+MarketingController.unregisterPushToken = async (req, res) => {
+  try {
+    const { token } = req.body;
+    if (!token) return res.status(400).json({ error: 'Token requerido' });
+    await User.updateOne({ _id: req.user.id }, { $pull: { pushTokens: { token } } });
+    res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -258,6 +342,10 @@ MarketingController.previewEmailTemplate = async (req, res) => {
 // ═══════════════════════════════════════════════════════════════════════════════
 //  EMAIL AUTOMATIONS
 // ═══════════════════════════════════════════════════════════════════════════════
+
+MarketingController.getAutomationVariables = (_req, res) => {
+  res.json({ variables: AUTOMATION_VARIABLES });
+};
 
 MarketingController.getEmailAutomations = async (_req, res) => {
   try {
@@ -391,54 +479,11 @@ MarketingController.trackOpen = async (req, res) => {
 
 MarketingController.trackClick = async (req, res) => {
   try {
-    const campaign = await EmailCampaign.findByIdAndUpdate(req.params.id, { $inc: { clickCount: 1 } });
-    const redirect = req.query.url || '/';
-    res.redirect(redirect);
+    await EmailCampaign.findByIdAndUpdate(req.params.id, { $inc: { clickCount: 1 } });
+    res.redirect(safeRedirectUrl(req.query.url));
   } catch {
-    res.redirect('/');
+    res.redirect(safeRedirectUrl(req.query.url));
   }
 };
 
-// ═══════════════════════════════════════════════════════════════════════════════
-//  HELPERS
-// ═══════════════════════════════════════════════════════════════════════════════
-
-function buildEmailHtml(template, campaignId) {
-  const baseUrl = process.env.API_URL || 'https://app.petnder.com/api';
-  const trackPixel = campaignId ? `<img src="${baseUrl}/marketing/email/track/${campaignId}/open" width="1" height="1" style="display:none" />` : '';
-  const color = template.headerColor || '#FF6B6B';
-  const headerImg = template.headerImage ? `<img src="${baseUrl}${template.headerImage}" style="width:100%;max-height:200px;object-fit:cover" />` : '';
-
-  const layouts = {
-    basic: `
-      <table style="max-width:600px;margin:0 auto;background:#fff;font-family:Arial,sans-serif" width="100%" cellpadding="0" cellspacing="0">
-        <tr><td style="background:${color};padding:30px 20px;text-align:center;color:#fff"><h1 style="margin:0;font-size:22px">${template.subject}</h1></td></tr>
-        ${headerImg ? `<tr><td>${headerImg}</td></tr>` : ''}
-        <tr><td style="padding:30px 20px;font-size:15px;color:#333;line-height:1.6">${template.bodyHtml}</td></tr>
-        <tr><td style="background:#f5f5f5;padding:20px;text-align:center;font-size:12px;color:#999">${template.footerText}${trackPixel}</td></tr>
-      </table>`,
-    'with-image': `
-      <table style="max-width:600px;margin:0 auto;background:#fff;font-family:Arial,sans-serif" width="100%" cellpadding="0" cellspacing="0">
-        ${headerImg ? `<tr><td>${headerImg}</td></tr>` : ''}
-        <tr><td style="padding:25px 20px"><h1 style="margin:0 0 15px;font-size:22px;color:${color}">${template.subject}</h1><div style="font-size:15px;color:#333;line-height:1.6">${template.bodyHtml}</div></td></tr>
-        <tr><td style="background:${color};padding:20px;text-align:center;font-size:12px;color:#fff">${template.footerText}${trackPixel}</td></tr>
-      </table>`,
-    colorful: `
-      <table style="max-width:600px;margin:0 auto;background:linear-gradient(135deg,${color},#FF8E72);font-family:Arial,sans-serif" width="100%" cellpadding="0" cellspacing="0">
-        <tr><td style="padding:40px 30px;text-align:center;color:#fff"><h1 style="margin:0 0 20px;font-size:26px">${template.subject}</h1>${headerImg ? headerImg : ''}</td></tr>
-        <tr><td style="background:#fff;padding:30px;margin:0 20px;border-radius:12px"><div style="font-size:15px;color:#333;line-height:1.6">${template.bodyHtml}</div></td></tr>
-        <tr><td style="padding:20px;text-align:center;font-size:12px;color:rgba(255,255,255,0.8)">${template.footerText}${trackPixel}</td></tr>
-      </table>`,
-    minimal: `
-      <table style="max-width:600px;margin:0 auto;background:#fff;font-family:Arial,sans-serif" width="100%" cellpadding="0" cellspacing="0">
-        <tr><td style="padding:40px 30px;border-bottom:3px solid ${color}"><h1 style="margin:0;font-size:20px;color:#111">${template.subject}</h1></td></tr>
-        <tr><td style="padding:30px;font-size:15px;color:#444;line-height:1.7">${template.bodyHtml}</td></tr>
-        <tr><td style="padding:20px 30px;font-size:11px;color:#aaa;border-top:1px solid #eee">${template.footerText}${trackPixel}</td></tr>
-      </table>`,
-  };
-
-  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head><body style="margin:0;padding:20px 0;background:#f4f4f4">${layouts[template.layout] || layouts.basic}</body></html>`;
-}
-
-export { buildEmailHtml };
 export default MarketingController;

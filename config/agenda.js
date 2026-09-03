@@ -4,6 +4,8 @@ import subscriptionJob from '../jobs/subscriptionJob.js';
 import inactivityJob from '../jobs/inactivityJob.js';
 import surveyJob from '../jobs/surveyJob.js';
 import backupJob from '../jobs/backupJob.js';
+import pushCampaignJob from '../jobs/pushCampaignJob.js';
+import emailAutomationJob from '../jobs/emailAutomationJob.js';
 
 const agenda = new Agenda({
   db: {
@@ -17,6 +19,8 @@ subscriptionJob(agenda);
 inactivityJob(agenda);
 surveyJob(agenda);
 backupJob(agenda);
+pushCampaignJob(agenda);
+emailAutomationJob(agenda);
 
 agenda.on('ready', async () => {
   console.log('✅ Agenda READY');
@@ -29,12 +33,15 @@ agenda.on('ready', async () => {
   await agenda.every('1 minute',  'activate_scheduled_trials');
   await agenda.every('6 hours',   'check_inactive_users');
   await agenda.every('12 hours',  'auto_backup');
+  await agenda.every('1 minute',  'send_scheduled_push');
 
   console.log('🕒 Job coupons_test programado');
   console.log('🕒 Job expire_trials programado');
   console.log('🕒 Job check_subscriptions programado');
   console.log('🕒 Job activate_scheduled_trials programado');
   console.log('🕒 Job check_inactive_users programado');
+  console.log('🕒 Job auto_backup programado');
+  console.log('🕒 Job send_scheduled_push programado');
 });
 
 agenda.on('error', (err) => {

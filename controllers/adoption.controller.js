@@ -5,7 +5,18 @@ import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
 import createUserNotification from '../utils/createUserNotification.js';
 import createSystemNotification from '../utils/createSystemNotification.js';
+import { triggerEmailAutomation } from '../utils/emailAutomations.js';
 dotenv.config();
+
+// Email de automatización al dueño de la publicación (no bloquea)
+const notifyAdoptionOwner = async (event, adoption) => {
+    try {
+        const owner = await User.findById(adoption.user).select('email firstName username').lean();
+        if (owner) await triggerEmailAutomation(event, owner, { mascota: adoption.nombre });
+    } catch (err) {
+        console.error(`Error en automatización ${event}:`, err.message);
+    }
+};
 
 const verifyAdmin = async (req) => {
     const token = req.headers.authorization.split(' ')[1];
@@ -212,6 +223,7 @@ AdoptionController.update = async (req, res) => {
                 title: `${adoption.nombre} fue adoptado/a en Petnder!`,
                 text: `Una mascota más ha sido adoptada en Petnder 🤗`,
             });
+            notifyAdoptionOwner('adoption_completed', adoption);
         }
 
         if (!adoption) return res.status(404).json({ message: 'Not found' });
@@ -327,6 +339,7 @@ AdoptionController.adminApprove = async (req, res) => {
         );
         if (!adoption) return res.status(404).json({ message: 'No encontrado' });
         await createUserNotification(adoption.user, 'Publicacion aprobada', `Tu publicacion de ${adoption.nombre} fue aprobada.`, 'usuario/adoption/myAdoptions');
+        notifyAdoptionOwner('adoption_approved', adoption);
         res.status(200).json(adoption);
     } catch (error) {
         res.status(400).json({ error: error.message });
@@ -369,6 +382,7 @@ AdoptionController.adminMarkAdopted = async (req, res) => {
             text: `Una mascota mas ha encontrado hogar.`,
         });
         await createUserNotification(adoption.user, 'Mascota adoptada', `Se registro que ${adoption.nombre} fue adoptada.`, 'usuario/adoption/myAdoptions');
+        notifyAdoptionOwner('adoption_completed', adoption);
         res.status(200).json(adoption);
     } catch (error) {
         res.status(400).json({ error: error.message });

@@ -2,6 +2,7 @@ import User from '../models/User.js'
 import AutomationConfig from '../models/AutomationConfig.js'
 import createUserNotification from '../utils/createUserNotification.js'
 import sendGenericEmail from '../utils/sendGenericEmail.js'
+import { triggerEmailAutomation } from '../utils/emailAutomations.js';
 
 const INACTIVITY_THRESHOLDS = [30, 45, 60]
 
@@ -55,7 +56,8 @@ const inactivityJob = (agenda) => {
 
         if (user.email) {
           try {
-            await sendGenericEmail({
+            const automated = await triggerEmailAutomation('inactivity', user, { dias: String(daysSince) })
+            if (!automated) await sendGenericEmail({
               to: user.email,
               subject: '¡Te extrañamos en Petnder!',
               body: `Hola ${user.firstName || ''},<br><br>${msg}<br><br>Ingresa a Petnder y descubre las novedades que te esperan.`,

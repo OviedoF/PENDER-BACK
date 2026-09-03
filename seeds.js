@@ -122,6 +122,45 @@ async function seedCategories() {
   }
 }
 
+// Acciones por módulo (debe coincidir con models/AdminRole.js)
+const MODULE_ACTIONS = {
+  dashboard:        ['view'],
+  usuarios:         ['view', 'edit', 'suspend', 'delete'],
+  empresas:         ['view', 'edit', 'approve', 'delete'],
+  mascotas:         ['view', 'edit', 'delete'],
+  adopciones:       ['view', 'manage', 'delete'],
+  comunidad:        ['view', 'moderate', 'delete'],
+  cupones:          ['view', 'create', 'edit', 'delete'],
+  suscripciones:    ['view', 'manage'],
+  pagos:            ['view', 'manage', 'export'],
+  reportes:         ['view', 'manage', 'export'],
+  seguridad:        ['view', 'manage'],
+  geolocalizacion:  ['view', 'manage'],
+  automatizaciones: ['view', 'manage'],
+  marketing:        ['view', 'manage'],
+  configuracion:    ['view', 'manage'],
+  adminUsuarios:    ['view', 'manage'],
+};
+
+/**
+ * Convierte un nivel legible ('none' | 'view' | 'manage') por módulo
+ * al formato booleano por acción que espera el modelo AdminRole.
+ *  - none   → todas las acciones en false
+ *  - view   → solo view en true
+ *  - manage → todas las acciones en true
+ */
+function buildPermissions(levels) {
+  const permissions = {};
+  for (const [module, actions] of Object.entries(MODULE_ACTIONS)) {
+    const level = levels[module] ?? 'none';
+    permissions[module] = {};
+    for (const action of actions) {
+      permissions[module][action] = level === 'manage' || (level === 'view' && action === 'view');
+    }
+  }
+  return permissions;
+}
+
 async function seedAdminRoles() {
   try {
     const existing = await AdminRole.countDocuments();
@@ -130,80 +169,74 @@ async function seedAdminRoles() {
       return;
     }
 
-    const allManage = {
-      dashboard: 'manage', usuarios: 'manage', empresas: 'manage',
-      mascotas: 'manage', adopciones: 'manage', comunidad: 'manage',
-      cupones: 'manage', suscripciones: 'manage', pagos: 'manage',
-      seguridad: 'manage', geolocalizacion: 'manage',
-      automatizaciones: 'manage', configuracion: 'manage', adminUsuarios: 'manage',
-    };
+    const allManage = Object.fromEntries(Object.keys(MODULE_ACTIONS).map(m => [m, 'manage']));
 
     const defaultRoles = [
       {
         name: 'Super Admin',
         description: 'Acceso total a todas las funcionalidades del panel',
         isDefault: true,
-        permissions: allManage,
+        permissions: buildPermissions(allManage),
       },
       {
         name: 'Admin Operativo',
         description: 'Gestión operativa diaria sin acceso a configuración ni roles',
         isDefault: true,
-        permissions: {
+        permissions: buildPermissions({
           dashboard: 'view', usuarios: 'manage', empresas: 'manage',
           mascotas: 'manage', adopciones: 'manage', comunidad: 'manage',
           cupones: 'manage', suscripciones: 'view', pagos: 'view',
-          seguridad: 'view', geolocalizacion: 'view',
-          automatizaciones: 'none', configuracion: 'none', adminUsuarios: 'none',
-        },
+          reportes: 'manage', seguridad: 'view', geolocalizacion: 'view',
+          automatizaciones: 'none', marketing: 'view', configuracion: 'none', adminUsuarios: 'none',
+        }),
       },
       {
         name: 'Moderador',
         description: 'Moderación de contenido, comunidad y reportes de seguridad',
         isDefault: true,
-        permissions: {
+        permissions: buildPermissions({
           dashboard: 'view', usuarios: 'view', empresas: 'view',
           mascotas: 'view', adopciones: 'view', comunidad: 'manage',
           cupones: 'none', suscripciones: 'none', pagos: 'none',
-          seguridad: 'manage', geolocalizacion: 'none',
-          automatizaciones: 'none', configuracion: 'none', adminUsuarios: 'none',
-        },
+          reportes: 'manage', seguridad: 'manage', geolocalizacion: 'none',
+          automatizaciones: 'none', marketing: 'none', configuracion: 'none', adminUsuarios: 'none',
+        }),
       },
       {
         name: 'Marketing',
-        description: 'Gestión de cupones, comunidad y contenido promocional',
+        description: 'Gestión de cupones, banners, campañas y contenido promocional',
         isDefault: true,
-        permissions: {
+        permissions: buildPermissions({
           dashboard: 'view', usuarios: 'view', empresas: 'view',
           mascotas: 'view', adopciones: 'none', comunidad: 'manage',
           cupones: 'manage', suscripciones: 'view', pagos: 'none',
-          seguridad: 'none', geolocalizacion: 'none',
-          automatizaciones: 'view', configuracion: 'none', adminUsuarios: 'none',
-        },
+          reportes: 'none', seguridad: 'none', geolocalizacion: 'none',
+          automatizaciones: 'view', marketing: 'manage', configuracion: 'none', adminUsuarios: 'none',
+        }),
       },
       {
         name: 'Finanzas',
         description: 'Gestión de pagos, suscripciones y métricas financieras',
         isDefault: true,
-        permissions: {
+        permissions: buildPermissions({
           dashboard: 'view', usuarios: 'view', empresas: 'view',
           mascotas: 'none', adopciones: 'none', comunidad: 'none',
           cupones: 'view', suscripciones: 'manage', pagos: 'manage',
-          seguridad: 'none', geolocalizacion: 'none',
-          automatizaciones: 'none', configuracion: 'none', adminUsuarios: 'none',
-        },
+          reportes: 'view', seguridad: 'none', geolocalizacion: 'none',
+          automatizaciones: 'none', marketing: 'none', configuracion: 'none', adminUsuarios: 'none',
+        }),
       },
       {
         name: 'Soporte',
         description: 'Atención a usuarios y empresas, gestión de reportes',
         isDefault: true,
-        permissions: {
+        permissions: buildPermissions({
           dashboard: 'view', usuarios: 'view', empresas: 'view',
           mascotas: 'view', adopciones: 'view', comunidad: 'view',
           cupones: 'none', suscripciones: 'view', pagos: 'none',
-          seguridad: 'manage', geolocalizacion: 'view',
-          automatizaciones: 'none', configuracion: 'none', adminUsuarios: 'none',
-        },
+          reportes: 'manage', seguridad: 'manage', geolocalizacion: 'view',
+          automatizaciones: 'none', marketing: 'none', configuracion: 'none', adminUsuarios: 'none',
+        }),
       },
     ];
 

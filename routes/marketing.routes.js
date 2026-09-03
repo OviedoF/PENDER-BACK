@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import MarketingController from '../controllers/marketing.controller.js';
 import { requirePermission } from '../middlewares/roleMiddleware.js';
-import { protect } from '../middlewares/authMiddleware.js';
+import { protect, optionalAuth } from '../middlewares/authMiddleware.js';
 import upload from '../config/multer.config.js';
 
 const router = Router();
@@ -10,7 +10,7 @@ const view = requirePermission('marketing', 'view');
 const manage = requirePermission('marketing', 'manage');
 
 // ─── BANNERS (public, before :id to avoid capture) ──────────────────────────
-router.get('/banners/active',   MarketingController.getActiveBanners);
+router.get('/banners/active',   optionalAuth, MarketingController.getActiveBanners);
 router.post('/banners/:id/click', MarketingController.clickBanner);
 
 // ─── BANNERS (admin) ─────────────────────────────────────────────────────────
@@ -20,9 +20,15 @@ router.put('/banners/reorder',  manage, MarketingController.reorderBanners);
 router.put('/banners/:id',      manage, upload.single('image'), MarketingController.updateBanner);
 router.delete('/banners/:id',   manage, MarketingController.deleteBanner);
 
+// ─── PUSH TOKENS (app móvil, usuario autenticado) ────────────────────────────
+router.post('/push/token',      protect, MarketingController.registerPushToken);
+router.delete('/push/token',    protect, MarketingController.unregisterPushToken);
+
 // ─── PUSH CAMPAIGNS ─────────────────────────────────────────────────────────
 router.get('/push',             view,   MarketingController.getPushCampaigns);
 router.post('/push',            manage, MarketingController.createPushCampaign);
+router.post('/push/audience',   view,   MarketingController.previewPushAudience);
+router.put('/push/:id',         manage, MarketingController.updatePushCampaign);
 router.post('/push/:id/send',   manage, MarketingController.sendPushCampaign);
 router.delete('/push/:id',      manage, MarketingController.deletePushCampaign);
 
@@ -34,6 +40,7 @@ router.delete('/email/templates/:id',   manage, MarketingController.deleteEmailT
 router.get('/email/templates/:id/preview', view, MarketingController.previewEmailTemplate);
 
 // ─── EMAIL AUTOMATIONS ───────────────────────────────────────────────────────
+router.get('/email/automations/variables', view, MarketingController.getAutomationVariables);
 router.get('/email/automations',        view,   MarketingController.getEmailAutomations);
 router.post('/email/automations',       manage, MarketingController.createEmailAutomation);
 router.put('/email/automations/:id',    manage, MarketingController.updateEmailAutomation);

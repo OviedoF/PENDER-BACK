@@ -8,6 +8,7 @@ import AutomationConfig from '../models/AutomationConfig.js'
 import SystemConfig from '../models/SystemConfig.js'
 import createUserNotification from '../utils/createUserNotification.js'
 import sendGenericEmail from '../utils/sendGenericEmail.js'
+import { triggerEmailAutomation } from '../utils/emailAutomations.js';
 
 const MP_API = 'https://api.mercadopago.com'
 const FALLBACK_PRICES = { free: 0, basic: 9.99, pro: 19.99 }
@@ -181,7 +182,9 @@ const subscriptionJob = (agenda) => {
             )
             if (sub.user.email) {
               try {
-                await sendGenericEmail({
+                // Plantilla del panel si hay automatización activa; si no, email por defecto
+                const automated = await triggerEmailAutomation('subscription_expired', sub.user, { plan: oldPlan })
+                if (!automated) await sendGenericEmail({
                   to: sub.user.email,
                   subject: 'Tu suscripción ha vencido',
                   body: `Hola ${sub.user.firstName || ''},<br><br>${msg}<br><br>Renueva tu suscripción en Petnder para seguir disfrutando de los beneficios.`,
@@ -226,7 +229,9 @@ const subscriptionJob = (agenda) => {
             )
             if (sub.user.email) {
               try {
-                await sendGenericEmail({
+                // Plantilla del panel si hay automatización activa; si no, email por defecto
+                const automated = await triggerEmailAutomation('subscription_expired', sub.user, { plan: oldPlan })
+                if (!automated) await sendGenericEmail({
                   to: sub.user.email,
                   subject: 'Tu suscripción ha vencido',
                   body: `Hola ${sub.user.firstName || ''},<br><br>${msg}<br><br>Renueva tu suscripción en Petnder para seguir disfrutando de los beneficios.`,
@@ -271,7 +276,8 @@ const subscriptionJob = (agenda) => {
 
           if (sub.user.email) {
             try {
-              await sendGenericEmail({
+              const automated = await triggerEmailAutomation('subscription_reminder', sub.user, { plan: sub.plan, dias: String(daysLeft) })
+              if (!automated) await sendGenericEmail({
                 to: sub.user.email,
                 subject: 'Tu suscripción está por vencer',
                 body: `Hola ${sub.user.firstName || ''},<br><br>${msg}<br><br>Ingresa a Petnder para renovar tu suscripción y no perder tus beneficios.`,

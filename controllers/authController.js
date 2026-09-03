@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import User from '../models/User.js';
 import Login from '../models/Login.js';
 import SuscriptionChange from '../models/SuscriptionChange.js';
@@ -15,6 +16,8 @@ import SystemNotification from '../models/SystemNotification.js';
 import { Cupon } from '../models/Coupon.js';
 import CouponCode from '../models/PremiumCouponCodes.js';
 import FeaturedRequest from '../models/FeaturedRequest.js';
+import { triggerEmailAutomation } from '../utils/emailAutomations.js';
+import PushCampaign from '../models/PushCampaign.js';
 
 async function verifyGoogleToken(token) {
   const response = await fetch('https://www.googleapis.com/oauth2/v1/userinfo?alt=json', {
@@ -92,6 +95,9 @@ authController.register = async (req, res) => {
     } else {
       const user = new User(req.body);
       await user.save();
+
+      // Automatización de email (bienvenida) — no bloquea la respuesta
+      triggerEmailAutomation(req.body.role === "enterprise" ? 'enterprise_register' : 'user_register', user);
 
       if (req.body.role === "enterprise") {
         return res.status(201).json({ message: `Empresa ${user.commercialName} registrada correctamente` });
@@ -227,6 +233,10 @@ authController.registerEnterprise = async (req, res) => {
     });
 
     await newService.save();
+
+    // Automatización de email (bienvenida empresa) — no bloquea la respuesta
+    triggerEmailAutomation('enterprise_register', user);
+
     res.status(201).json({ message: "User registered successfully" });
   } catch (error) {
     console.log(error);
@@ -525,6 +535,13 @@ authController.requestPasswordReset = async (req, res) => {
     user.resetPasswordExpires = Date.now() + (5 * 60 * 1000); // 5 minutos
     await user.save();
 
+    // Si hay una automatización activa para "password_reset", se usa su plantilla ({{codigo}}).
+    // Si no, se envía el email por defecto de abajo.
+    const automated = await triggerEmailAutomation('password_reset', user, { codigo: token });
+    if (automated > 0) {
+      return res.status(200).json({ message: "Correo enviado para recuperación de contraseña" });
+    }
+
     // Configurar transporte de correo
     const transporter = nodemailer.createTransport({
       service: 'gmail',
@@ -749,8 +766,13 @@ authController.readNotification = async (req, res) => {
       return res.status(403).json({ error: "No tienes permiso para marcar esta notificación como leída" });
     }
 
+    const wasUnread = !notification.readed;
     notification.readed = true;
     await notification.save();
+
+    if (wasUnread && notification.campaign) {
+      await PushCampaign.findByIdAndUpdate(notification.campaign, { $inc: { readCount: 1 } });
+    }
 
     res.status(200).json({ message: "Notificación marcada como leída" });
   } catch (error) {
@@ -764,6 +786,15 @@ authController.readAllNotifications = async (req, res) => {
     const token = req.headers.authorization.split(" ")[1];
     const payload = jwt.verify(token, process.env.JWT_SECRET);
     const id = payload.id;
+    // Contabilizar lecturas por campaña antes de marcar
+    const unreadByCampaign = await Notification.aggregate([
+      { $match: { user: new mongoose.Types.ObjectId(id), readed: false, campaign: { $ne: null } } },
+      { $group: { _id: '$campaign', n: { $sum: 1 } } },
+    ]);
+    for (const c of unreadByCampaign) {
+      await PushCampaign.findByIdAndUpdate(c._id, { $inc: { readCount: c.n } });
+    }
+
     await Notification.updateMany({ user: id }, { readed: true });
     res.status(200).json({ message: "Todas las notificaciones marcadas como leídas" });
   } catch (error) {

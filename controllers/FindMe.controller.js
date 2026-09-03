@@ -9,8 +9,19 @@ import createSystemNotification from '../utils/createSystemNotification.js';
 import createUserNotification from '../utils/createUserNotification.js';
 import { haversineKm } from '../utils/haversine.js';
 import sendGenericEmail from '../utils/sendGenericEmail.js';
+import { triggerEmailAutomation } from '../utils/emailAutomations.js';
 import agenda from '../config/agenda.js';
 dotenv.config();
+
+// Email de automatización "mascota recuperada" al dueño del reporte (no bloquea)
+const notifyPetRecovered = async (reporte) => {
+  try {
+    const owner = await User.findById(reporte.user).select('email firstName username').lean();
+    if (owner) await triggerEmailAutomation('pet_recovered', owner, { mascota: reporte.nombre });
+  } catch (err) {
+    console.error('Error en automatización pet_recovered:', err.message);
+  }
+};
 
 const sendRecoverySurvey = async (reporte) => {
     try {
@@ -456,6 +467,7 @@ FoundMeController.update = async (req, res) => {
         text: `Nos alegra comunicar que ha vuelto con su dueño!`,
       });
       sendRecoverySurvey(foundMe);
+      notifyPetRecovered(foundMe);
     }
 
     if (!foundMe) return res.status(404).json({ message: 'Not found' });
@@ -574,6 +586,7 @@ FoundMeController.adminUpdateStatus = async (req, res) => {
                 specificUser: reporte.user,
             });
             sendRecoverySurvey(reporte);
+            notifyPetRecovered(reporte);
         }
 
         res.status(200).json(reporte);

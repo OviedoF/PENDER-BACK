@@ -42,6 +42,17 @@ const userSchema = new mongoose.Schema({
   // NOTIFICATIONS
   loginNotifications: { type: Boolean, default: false },
 
+  // PUSH NOTIFICATIONS (tokens de Expo, uno por dispositivo)
+  pushTokens: [{
+    token:     { type: String, required: true },
+    platform:  { type: String, default: 'unknown' },
+    updatedAt: { type: Date, default: Date.now },
+  }],
+
+  // INTERESES (segmentación de campañas). Se combinan con la especie de sus
+  // mascotas publicadas (adopciones / reportes) al momento de segmentar.
+  interests: [{ type: String }],
+
   latitude: { type: Number, default: null },
   longitude: { type: Number, default: null },
 

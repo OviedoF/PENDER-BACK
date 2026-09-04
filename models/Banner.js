@@ -7,6 +7,9 @@ const bannerSchema = new mongoose.Schema({
   active:      { type: Boolean, default: true },
   order:       { type: Number, default: 0 },
 
+  // Sección de la app donde se muestra el banner
+  section:     { type: String, enum: ['home', 'adopcion', 'encuentrame'], default: 'home' },
+
   // Segundos que el banner permanece visible en el carrusel antes de pasar al siguiente
   duration:    { type: Number, default: 3, min: 1, max: 60 },
 

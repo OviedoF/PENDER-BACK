@@ -17,6 +17,8 @@ const MarketingController = {};
 //  BANNERS
 // ═══════════════════════════════════════════════════════════════════════════════
 
+const BANNER_SECTIONS = ['home', 'adopcion', 'encuentrame'];
+
 MarketingController.getBanners = async (_req, res) => {
   try {
     const banners = await Banner.find().sort({ order: 1, createdAt: -1 }).lean();
@@ -28,12 +30,13 @@ MarketingController.getBanners = async (_req, res) => {
 
 MarketingController.createBanner = async (req, res) => {
   try {
-    const { title, link, active, order, duration, variant, abGroup, startDate, endDate, departments, targetRoles, targetSubscriptions } = req.body;
+    const { title, link, active, order, duration, variant, abGroup, startDate, endDate, departments, targetRoles, targetSubscriptions, section } = req.body;
     const image = req.file ? `/api/uploads/${req.file.filename}` : '';
     if (!image) return res.status(400).json({ error: 'Se requiere una imagen' });
 
     const banner = await Banner.create({
       title, image, link, active: active !== 'false',
+      section: BANNER_SECTIONS.includes(section) ? section : 'home',
       order: Number(order) || 0,
       duration: Number(duration) || 3,
       variant: variant || 'A',
@@ -52,9 +55,10 @@ MarketingController.createBanner = async (req, res) => {
 
 MarketingController.updateBanner = async (req, res) => {
   try {
-    const { title, link, active, order, duration, variant, abGroup, startDate, endDate, departments, targetRoles, targetSubscriptions } = req.body;
+    const { title, link, active, order, duration, variant, abGroup, startDate, endDate, departments, targetRoles, targetSubscriptions, section } = req.body;
     const update = {
       title, link, active: active !== 'false',
+      section: BANNER_SECTIONS.includes(section) ? section : 'home',
       order: Number(order) || 0,
       duration: Number(duration) || 3,
       variant: variant || 'A',
@@ -121,9 +125,14 @@ MarketingController.getActiveBanners = async (req, res) => {
     }
     const bucket = abBucket(req.user?.id || req.headers['x-device-id']);
 
+    // Sección de la app que pide los banners (home por defecto; los banners
+    // viejos sin sección cuentan como home)
+    const section = BANNER_SECTIONS.includes(req.query.section) ? req.query.section : 'home';
+
     const banners = await Banner.find({ active: true }).sort({ order: 1, createdAt: -1 }).lean();
 
     const filtered = banners.filter(b => {
+      if ((b.section || 'home') !== section) return false;
       if (b.startDate && new Date(b.startDate) > now) return false;
       if (b.endDate && new Date(b.endDate) < now) return false;
       if (b.targetRoles?.length && !b.targetRoles.includes(role === 'enterprise' ? 'enterprise' : 'user')) return false;

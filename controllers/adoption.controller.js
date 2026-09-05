@@ -368,21 +368,22 @@ AdoptionController.adminReject = async (req, res) => {
     }
 };
 
+// Alterna el estado "adoptado". Solo notifica al pasar a adoptada, no al revertir.
 AdoptionController.adminMarkAdopted = async (req, res) => {
     try {
         await verifyAdmin(req);
-        const adoption = await Adoption.findOneAndUpdate(
-            { _id: req.params.id, deletedAt: null },
-            { adopted: true },
-            { new: true }
-        );
+        const adoption = await Adoption.findOne({ _id: req.params.id, deletedAt: null });
         if (!adoption) return res.status(404).json({ message: 'No encontrado' });
-        await createSystemNotification({
-            title: `${adoption.nombre} fue adoptado/a en Petnder!`,
-            text: `Una mascota mas ha encontrado hogar.`,
-        });
-        await createUserNotification(adoption.user, 'Mascota adoptada', `Se registro que ${adoption.nombre} fue adoptada.`, 'usuario/adoption/myAdoptions');
-        notifyAdoptionOwner('adoption_completed', adoption);
+        adoption.adopted = !adoption.adopted;
+        await adoption.save();
+        if (adoption.adopted) {
+            await createSystemNotification({
+                title: `${adoption.nombre} fue adoptado/a en Petnder!`,
+                text: `Una mascota mas ha encontrado hogar.`,
+            });
+            await createUserNotification(adoption.user, 'Mascota adoptada', `Se registro que ${adoption.nombre} fue adoptada.`, 'usuario/adoption/myAdoptions');
+            notifyAdoptionOwner('adoption_completed', adoption);
+        }
         res.status(200).json(adoption);
     } catch (error) {
         res.status(400).json({ error: error.message });

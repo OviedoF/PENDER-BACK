@@ -128,8 +128,14 @@ chatController.foundPet = async (req, res) => {
             createdBy: userId
         });
 
+        // Si el chat ya existe, se devuelve para que la app redirija directo a la conversación
         if (isAlreadyInChat) {
-            return res.status(400).json({ error: "Ya existe un chat para este hallazgo." });
+            return res.status(200).json({
+                existing: true,
+                chat: isAlreadyInChat,
+                recipientName: findMeData.user.username,
+                recipientAvatar: findMeData.user.image,
+            });
         }
 
         const chat = await Chat.create({
@@ -178,7 +184,12 @@ chatController.foundPet = async (req, res) => {
             { chatId: chat._id }
         );
 
-        res.status(201).json(chat);
+        res.status(201).json({
+            existing: false,
+            chat,
+            recipientName: findMeData.user.username,
+            recipientAvatar: findMeData.user.image,
+        });
 
     } catch (error) {
         console.error("Error in foundPet:", error);
@@ -391,8 +402,14 @@ chatController.requestAdoption = async (req, res) => {
             createdBy: userId
         });
 
+        // Si el chat ya existe, se devuelve para que la app redirija directo a la conversación
         if (isAlreadyInChat) {
-            return res.status(400).json({ error: "Ya existe un chat para esta adopción." });
+            return res.status(200).json({
+                existing: true,
+                chat: isAlreadyInChat,
+                recipientName: adoptionData.user.username,
+                recipientAvatar: adoptionData.user.image,
+            });
         }
 
         const chat = await Chat.create({
@@ -440,7 +457,12 @@ chatController.requestAdoption = async (req, res) => {
             "usuario/chats/adoptionsRequests",
         );
 
-        res.status(201).json(chat);
+        res.status(201).json({
+            existing: false,
+            chat,
+            recipientName: adoptionData.user.username,
+            recipientAvatar: adoptionData.user.image,
+        });
     } catch (error) {
         console.error("Error in requestAdoption:", error);
         res.status(500).json({ error: "Internal server error" });

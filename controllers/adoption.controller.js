@@ -4,7 +4,7 @@ import User from '../models/User.js';
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
 import createUserNotification from '../utils/createUserNotification.js';
-import createSystemNotification from '../utils/createSystemNotification.js';
+import { createSystemNotificationFromTemplate } from '../utils/createSystemNotification.js';
 import { triggerEmailAutomation } from '../utils/emailAutomations.js';
 dotenv.config();
 
@@ -219,10 +219,7 @@ AdoptionController.update = async (req, res) => {
         );
 
         if (adoption.adopted) {
-            await createSystemNotification({
-                title: `${adoption.nombre} fue adoptado/a en Petnder!`,
-                text: `Una mascota más ha sido adoptada en Petnder 🤗`,
-            });
+            await createSystemNotificationFromTemplate('adoption_adopted', { nombre: adoption.nombre });
             notifyAdoptionOwner('adoption_completed', adoption);
         }
 
@@ -377,10 +374,7 @@ AdoptionController.adminMarkAdopted = async (req, res) => {
         adoption.adopted = !adoption.adopted;
         await adoption.save();
         if (adoption.adopted) {
-            await createSystemNotification({
-                title: `${adoption.nombre} fue adoptado/a en Petnder!`,
-                text: `Una mascota mas ha encontrado hogar.`,
-            });
+            await createSystemNotificationFromTemplate('adoption_adopted', { nombre: adoption.nombre });
             await createUserNotification(adoption.user, 'Mascota adoptada', `Se registro que ${adoption.nombre} fue adoptada.`, 'usuario/adoption/myAdoptions');
             notifyAdoptionOwner('adoption_completed', adoption);
         }

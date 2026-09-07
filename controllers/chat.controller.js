@@ -6,7 +6,7 @@ import User from '../models/User.js';
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
 import createUserNotification from '../utils/createUserNotification.js';
-import createSystemNotification from '../utils/createSystemNotification.js';
+import { createSystemNotificationFromTemplate } from '../utils/createSystemNotification.js';
 dotenv.config();
 
 const chatController = {};
@@ -91,11 +91,10 @@ chatController.sendMessage = async (req, res) => {
                 `Revisa tu bandeja de entrada desde el ícono de Mensajes.`,
             );
 
-            await createSystemNotification({
-                title: `Tienes mensajes ${chat.type === "adoption" ? "en adopción" : "en perdidos"}!`,
-                text: `Revisa tu bandeja de entrada desde el ícono de Mensajes.`,
-                specificUser: receiver._id
-            });
+            await createSystemNotificationFromTemplate('chat_new_message',
+                { tipo: chat.type === "adoption" ? "en adopción" : "en perdidos" },
+                { specificUser: receiver._id }
+            );
         }
 
         res.status(201).json(message);
@@ -166,13 +165,14 @@ chatController.foundPet = async (req, res) => {
             { chatId: chat._id }
         );
 
-        await createSystemNotification({
-            title: "Posible mascota encontrada",
-            text: `${user.username} cree haber encontrado a ${findMeData.nombre}`,
-            link: "usuario/chats/findMeSolis",
-            params: { chatId: chat._id },
-            specificUser: ownerId
-        });
+        await createSystemNotificationFromTemplate('found_pet_request',
+            { usuario: user.username, nombre: findMeData.nombre },
+            {
+                link: "usuario/chats/findMeSolis",
+                params: { chatId: chat._id },
+                specificUser: ownerId
+            }
+        );
 
 
         // ----------- USUARIO QUE ENCONTRÓ -----------
@@ -440,13 +440,14 @@ chatController.requestAdoption = async (req, res) => {
             { chatId: chat._id }
         );
 
-        await createSystemNotification({
-            title: "Nueva solicitud de adopción",
-            text: `${user.username} quiere adoptar a ${adoptionData.nombre}`,
-            link: "usuario/chats/adoptionSolis",
-            params: { chatId: chat._id },
-            specificUser: ownerId
-        });
+        await createSystemNotificationFromTemplate('adoption_request',
+            { usuario: user.username, nombre: adoptionData.nombre },
+            {
+                link: "usuario/chats/adoptionSolis",
+                params: { chatId: chat._id },
+                specificUser: ownerId
+            }
+        );
 
 
         // ----------- ADOPTANTE -----------
@@ -541,9 +542,7 @@ chatController.rejectAdoption = async (req, res) => {
                 { chatId: chat._id }
             );
 
-            await createSystemNotification({
-                title: "Solicitud de adopción rechazada",
-                text: `El dueño rechazó tu solicitud de adopción.`,
+            await createSystemNotificationFromTemplate('adoption_rejected', {}, {
                 link: "usuario/chats/adoptionsRequests",
                 params: { chatId: chat._id },
                 specificUser: requester._id

@@ -5,7 +5,7 @@ import GeoConfig from '../models/GeoConfig.js';
 import AutomationConfig from '../models/AutomationConfig.js';
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
-import createSystemNotification from '../utils/createSystemNotification.js';
+import createSystemNotification, { createSystemNotificationFromTemplate } from '../utils/createSystemNotification.js';
 import createUserNotification from '../utils/createUserNotification.js';
 import { haversineKm } from '../utils/haversine.js';
 import sendGenericEmail from '../utils/sendGenericEmail.js';
@@ -217,9 +217,14 @@ FoundMeController.create = async (req, res) => {
         }
 
         if (matchCount > 0) {
-          await createSystemNotification({
-            title: `Mascota ${tipoLabel} en ${foundMe.departamento}`,
-            text: `Se reportó ${foundMe.nombre} (${especieText}) en ${zonaText}. ${matchCount} coincidencia(s) encontrada(s), se notificó a ${notifiedUsers.size} usuario(s).`,
+          await createSystemNotificationFromTemplate('findme_match_alert', {
+            tipo: tipoLabel,
+            departamento: foundMe.departamento,
+            nombre: foundMe.nombre,
+            especie: especieText,
+            zona: zonaText,
+            coincidencias: matchCount,
+            notificados: notifiedUsers.size,
           });
         }
       }
@@ -252,9 +257,12 @@ FoundMeController.create = async (req, res) => {
         }
 
         if (nearbyCount > 0) {
-          await createSystemNotification({
-            title: `Alerta de zona: ${foundMe.departamento}`,
-            text: `Se notificó a ${nearbyCount} usuario(s) cercanos sobre ${foundMe.nombre} (${especieText}) en ${zonaText}.`,
+          await createSystemNotificationFromTemplate('findme_zone_alert', {
+            departamento: foundMe.departamento,
+            cantidad: nearbyCount,
+            nombre: foundMe.nombre,
+            especie: especieText,
+            zona: zonaText,
           });
         }
       }
@@ -462,10 +470,7 @@ FoundMeController.update = async (req, res) => {
     );
 
     if (foundMe.finished) {
-      await createSystemNotification({
-        title: `${foundMe.nombre} fue encontrado/a!`,
-        text: `Nos alegra comunicar que ha vuelto con su dueño!`,
-      });
+      await createSystemNotificationFromTemplate('pet_recovered', { nombre: foundMe.nombre });
       sendRecoverySurvey(foundMe);
       notifyPetRecovered(foundMe);
     }
@@ -580,11 +585,10 @@ FoundMeController.adminUpdateStatus = async (req, res) => {
         if (!reporte) return res.status(404).json({ message: 'No encontrado' });
 
         if (finished) {
-            await createSystemNotification({
-                title: `${reporte.nombre} fue recuperado/a!`,
-                text: `Nos alegra comunicar que la mascota ha vuelto con su dueno.`,
-                specificUser: reporte.user,
-            });
+            await createSystemNotificationFromTemplate('pet_recovered_report',
+                { nombre: reporte.nombre },
+                { specificUser: reporte.user }
+            );
             sendRecoverySurvey(reporte);
             notifyPetRecovered(reporte);
         }

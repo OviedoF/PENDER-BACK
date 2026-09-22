@@ -94,7 +94,7 @@ ServiceController.getByUser = async (req, res) => {
 // Obtener todos los servicios
 ServiceController.getAll = async (req, res) => {
     try {
-        const { search, category, tag, userLat, userLng } = req.query;
+        const { search, category, tag, userLat, userLng, sortBy } = req.query;
 
         const filter = { deletedAt: null, oculto: false };
 
@@ -198,7 +198,10 @@ ServiceController.getAll = async (req, res) => {
         const proxWeight = geoConfig?.proximityWeight ?? 0.7;
         const maxDist = geoConfig?.proximityMaxDistanceKm ?? 50;
 
+        // sortBy=rating: orden puro por valoración (mayor a menor) pedido desde
+        // el filtro de la app; premium y approved ya vienen ordenados por score
         regular.sort((a, b) => {
+            if (sortBy === 'rating') return (b.score ?? 0) - (a.score ?? 0);
             const aFeatured = a.user?.featured ? 1 : 0;
             const bFeatured = b.user?.featured ? 1 : 0;
             if (bFeatured !== aFeatured) return bFeatured - aFeatured;

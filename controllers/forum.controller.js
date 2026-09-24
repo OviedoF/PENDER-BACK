@@ -576,6 +576,33 @@ ForumController.adminToggleFeatured = async (req, res) => {
     }
 };
 
+// PUT /admin/:id — editar un post del foro desde el panel
+ForumController.adminUpdate = async (req, res) => {
+    try {
+        await verifyAdmin(req);
+        const forum = await Forum.findOne({ _id: req.params.id, deletedAt: null });
+        if (!forum) return res.status(404).json({ message: 'No encontrado' });
+
+        const { titulo, descripcion, categorias, etiquetas } = req.body;
+
+        if (titulo !== undefined) {
+            if (!String(titulo).trim()) return res.status(400).json({ message: 'El título no puede quedar vacío' });
+            forum.titulo = String(titulo).trim();
+        }
+        if (descripcion !== undefined) {
+            if (!String(descripcion).trim()) return res.status(400).json({ message: 'El contenido no puede quedar vacío' });
+            forum.descripcion = String(descripcion).trim();
+        }
+        if (Array.isArray(categorias)) forum.categorias = categorias.map((c) => String(c).trim()).filter(Boolean);
+        if (Array.isArray(etiquetas)) forum.etiquetas = etiquetas.map((e) => String(e).trim()).filter(Boolean);
+
+        await forum.save();
+        res.status(200).json(forum);
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+};
+
 ForumController.adminDelete = async (req, res) => {
     try {
         await verifyAdmin(req);

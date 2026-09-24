@@ -524,6 +524,36 @@ CommunityController.adminToggleFeatured = async (req, res) => {
     }
 };
 
+// PUT /admin/:id — editar los datos de una comunidad desde el panel
+CommunityController.adminUpdate = async (req, res) => {
+    try {
+        await verifyAdmin(req);
+        const community = await Community.findOne({ _id: req.params.id, deletedAt: null });
+        if (!community) return res.status(404).json({ message: 'No encontrado' });
+
+        const { nombre, resena, privacidad, departamento, ciudad, distrito, imagen } = req.body;
+
+        if (nombre !== undefined) {
+            if (!String(nombre).trim()) return res.status(400).json({ message: 'El nombre no puede quedar vacío' });
+            community.nombre = String(nombre).trim();
+        }
+        if (resena !== undefined) {
+            if (!String(resena).trim()) return res.status(400).json({ message: 'La reseña no puede quedar vacía' });
+            community.resena = String(resena).trim();
+        }
+        if (privacidad !== undefined && ['publica', 'privada'].includes(privacidad)) community.privacidad = privacidad;
+        if (departamento !== undefined) community.departamento = departamento || null;
+        if (ciudad !== undefined) community.ciudad = ciudad || null;
+        if (distrito !== undefined) community.distrito = distrito || null;
+        if (imagen !== undefined && String(imagen).trim()) community.imagen = String(imagen).trim();
+
+        await community.save();
+        res.status(200).json(community);
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+};
+
 CommunityController.adminTogglePrivacy = async (req, res) => {
     try {
         await verifyAdmin(req);

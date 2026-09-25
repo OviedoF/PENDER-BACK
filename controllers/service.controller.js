@@ -607,21 +607,25 @@ ServiceController.getCategories = async (req, res) => {
             {
                 $group: {
                     _id: "$categoria",
-                    totalVistas: { $sum: "$vistas" } // sumamos el número total de vistas
+                    totalVistas: { $sum: "$vistas" }, // sumamos el número total de vistas
+                    totalServicios: { $sum: 1 }
                 }
             }
         ]);
 
         // 3️⃣ Crear un mapa { nombreCategoria: totalVistas }
         const vistaMap = {};
+        const serviciosMap = {};
         servicesByCategory.forEach(s => {
             vistaMap[s._id] = s.totalVistas;
+            serviciosMap[s._id] = s.totalServicios;
         });
 
-        // 4️⃣ Combinar categorías con su conteo de vistas
+        // 4️⃣ Combinar categorías con su conteo de vistas y de servicios
         const result = categories.map(cat => ({
             ...cat.toObject(),
-            count: vistaMap[cat.title] || 0
+            count: vistaMap[cat.title] || 0,
+            servicesCount: serviciosMap[cat.title] || 0
         }));
 
         res.json(result);

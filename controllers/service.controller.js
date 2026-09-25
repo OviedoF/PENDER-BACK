@@ -158,10 +158,11 @@ ServiceController.getAll = async (req, res) => {
 
         // Clasificación:
         //   premium  -> empresas PRO con el beneficio Petnder activo en el servicio
-        //               (descuento fijo -50%); el admin puede apagarlo por servicio
-        //   approved -> empresas que pagan (basic, o PRO sin beneficio) o que
-        //               tienen cupón propio (creado por ellas o por el admin)
-        //   regular  -> empresas sin plan y sin cupones
+        //               (descuento fijo -50% que asume Petnder); el admin puede
+        //               apagarlo por servicio
+        //   approved -> servicios con un descuento real que asume el negocio:
+        //               cupón propio activo o destacado aprobado con cupón
+        //   regular  -> el resto (incluidas empresas con plan pero sin cupones)
         const premium = [];
         const approved = [];
         let regular = [];
@@ -171,12 +172,12 @@ ServiceController.getAll = async (req, res) => {
             const fr = frByService[sid];
             const sub = s.user?.suscription;
             const ownCoupon = couponByService[sid];
+            const businessDiscount = ownCoupon ?? fr?.discount;
 
             if ((sub === 'pro' && s.petnderBenefit !== false) || fr?.premium) {
                 premium.push({ ...s.toObject(), discount: fr?.discount ?? PRO_FIXED_DISCOUNT });
-            } else if (sub === 'pro' || sub === 'basic' || fr || ownCoupon) {
-                const discount = ownCoupon ?? fr?.discount;
-                approved.push({ ...s.toObject(), ...(discount ? { discount } : {}) });
+            } else if (businessDiscount) {
+                approved.push({ ...s.toObject(), discount: businessDiscount });
             } else {
                 regular.push(s);
             }

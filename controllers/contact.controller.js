@@ -38,7 +38,7 @@ const ContactController = {
 
       const ip = req.headers['x-real-ip'] || req.headers['x-forwarded-for'] || req.ip || '?';
       if (tooMany(String(ip))) {
-        return res.status(429).json({ error: 'Demasiados mensajes. Probá de nuevo más tarde.' });
+        return res.status(429).json({ error: 'Demasiados mensajes. Inténtalo de nuevo más tarde.' });
       }
 
       await sendGenericEmail({
@@ -53,7 +53,7 @@ ${telefono ? `<b>Teléfono:</b> ${esc(telefono)}<br>` : ''}
       return res.json({ ok: true });
     } catch (error) {
       console.error('Error en contacto:', error.message);
-      return res.status(500).json({ error: 'No se pudo enviar el mensaje. Intentá más tarde.' });
+      return res.status(500).json({ error: 'No se pudo enviar el mensaje. Inténtalo más tarde.' });
     }
   },
 };
